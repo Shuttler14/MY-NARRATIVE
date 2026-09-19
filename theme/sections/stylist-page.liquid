@@ -1,0 +1,32 @@
+{%- comment -%}
+  AI Stylist Wizard — Full-page standalone section
+  Loads its own CSS + JS, initializes independently from widget
+{%- endcomment -%}
+
+{{ 'MN-stylist-wizard-v4.css' | asset_url | stylesheet_tag }}
+
+<div id="mn-stylist-app" class="mn4-shell">
+  <div class="mn4-shell-header">
+    <a href="/" class="mn4-shell-logo">my<b>narrative</b></a>
+    <a href="/" class="mn4-shell-back">&larr; Back to Shop</a>
+  </div>
+  <div class="mn4-shell-body">
+    <div class="mn4-card">
+      <div class="mn4-orb mn4-orb--teal"></div>
+      <div class="mn4-orb mn4-orb--purple"></div>
+      <div id="mn-progress-bar"></div>
+      <div id="mn-scroll-area" class="mn4-scroll"></div>
+      <div id="mn-footer-area"></div>
+      <div id="mn-dots-area"></div>
+    </div>
+  </div>
+</div>
+
+{{ 'MN-stylist-wizard-v4.js' | asset_url | script_tag }}
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    if (window.MN4 && typeof MN4.init === 'function') {
+      MN4.init();
+    }
+  });
+</script>

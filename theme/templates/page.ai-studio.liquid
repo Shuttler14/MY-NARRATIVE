@@ -1,0 +1,2138 @@
+{% comment %}
+=================================================================================
+AI STUDIO — Token Gate
+=================================================================================
+Checks creator's Narrative Tokens BEFORE allowing design generation.
+- Fetches from /api/creator/earnings/summary on page load
+- If ai_credits = 0: shows upgrade overlay blocking the studio
+- If ai_credits > 0: shows token count badge and allows access
+- Pre-migration safe: if API returns no ai_credits field, allows access (default 3)
+=================================================================================
+{% endcomment %}
+
+{%- assign creator_id = customer.id | default: '' -%}
+
+<script>
+  window.ENV = Object.assign({}, window.ENV || {}, {
+    SUPABASE_URL: "{{ settings.supabase_url | default: '' | escape }}",
+    SUPABASE_ANON_KEY: "{{ settings.supabase_anon_key | default: '' | escape }}"
+  });
+</script>
+
+<!-- Token Gate Overlay (hidden by default, shown if 0 tokens) -->
+<div id="mnTokenGateOverlay" style="
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.92);
+  z-index: 99998;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  backdrop-filter: blur(12px);
+">
+  <div style="
+    background: #111;
+    border: 1px solid rgba(239,68,68,0.4);
+    border-radius: 1.25rem;
+    padding: 2.5rem 2rem;
+    max-width: 480px;
+    width: 100%;
+    text-align: center;
+    animation: mnTokenGateIn 0.3s ease;
+  ">
+    <div style="font-size:3rem;margin-bottom:1rem;filter:grayscale(1)">🪙</div>
+    <h2 style="font-family:'Montserrat',sans-serif;font-size:1.5rem;font-weight:700;color:white;margin:0 0 0.75rem;">
+      0 Narrative Tokens
+    </h2>
+    <p style="color:rgba(255,255,255,0.65);font-size:0.9rem;line-height:1.6;margin:0 0 1.5rem;">
+      You need at least <strong style="color:#39A596">1 Narrative Token</strong> to generate a design.
+      Tokens are your creative fuel — earn them by selling designs or grab a bundle instantly.
+    </p>
+
+    <!-- Token earning options -->
+    <div style="display:flex;flex-direction:column;gap:0.75rem;margin-bottom:1.5rem;">
+      <a href="/pages/narrative-tokens" style="
+        display:block;padding:0.875rem 1.5rem;
+        background:linear-gradient(135deg,#39A596,#2dd4bf);
+        color:#000;font-family:'Montserrat',sans-serif;font-weight:700;font-size:0.875rem;
+        text-transform:uppercase;letter-spacing:1px;border-radius:0.75rem;text-decoration:none;
+        transition:all 0.2s;
+      ">🪙 Buy Token Bundle</a>
+
+      <a href="/products/creator-sample-kit" style="
+        display:block;padding:0.875rem 1.5rem;
+        background:rgba(57,165,150,0.12);
+        border:1px solid rgba(57,165,150,0.35);
+        color:#39A596;font-family:'Montserrat',sans-serif;font-weight:600;font-size:0.875rem;
+        border-radius:0.75rem;text-decoration:none;
+      ">🧥 Buy Sample Kit (+10 tokens)</a>
+
+      <a href="/collections/all" style="
+        display:block;padding:0.75rem;
+        color:rgba(255,255,255,0.4);font-size:0.8rem;text-decoration:none;
+      ">Browse store to earn tokens via sales →</a>
+    </div>
+
+    <p style="color:rgba(255,255,255,0.25);font-size:0.75rem;margin:0;">
+      Tokens replenish: +5 per sale · +10 per sample kit purchase
+    </p>
+  </div>
+</div>
+
+<!-- Token Status Badge — fixed bottom-right, clear of content -->
+<div id="mnTokenBadge" style="
+  display: none;
+  position: fixed;
+  bottom: 1.25rem;
+  right: 1.25rem;
+  top: auto;
+  background: rgba(10,10,10,0.88);
+  border: 1px solid rgba(57,165,150,0.4);
+  border-radius: 2rem;
+  padding: 0.4rem 0.9rem 0.4rem 0.65rem;
+  font-size: 0.78rem;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  color: white;
+  z-index: 9985;
+  align-items: center;
+  gap: 0.4rem;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(57,165,150,0.1);
+  cursor: pointer;
+  text-decoration: none;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: border-color 0.2s, box-shadow 0.2s;
+">
+  <span>🪙</span>
+  <span id="mnTokenBadgeCount" style="color:#39A596">–</span>
+  <span style="color:rgba(255,255,255,0.5);font-size:0.7rem">tokens</span>
+</div>
+
+<style>
+  @keyframes mnTokenGateIn {
+    from { opacity:0; transform:translateY(16px); }
+    to   { opacity:1; transform:translateY(0); }
+  }
+</style>
+
+<script>
+(function() {
+  'use strict';
+  var pageParams = new URLSearchParams(window.location.search);
+  var pageIntent = pageParams.get('intent') || '';
+  var BYPASS_TOKENS_FOR_UPLOAD = pageIntent === 'creator_upload';
+  var CREATOR_API = 'https://drishti-api-blond.vercel.app';
+  var CREATOR_ID  = '{{ creator_id }}';
+  var overlay     = document.getElementById('mnTokenGateOverlay');
+  var badge       = document.getElementById('mnTokenBadge');
+  var badgeCount  = document.getElementById('mnTokenBadgeCount');
+
+  function applyTokenState(credits) {
+    if (credits === null || credits === undefined) {
+      // Pre-migration or API unavailable — allow access, show no badge
+      if (overlay) overlay.style.display = 'none';
+      return;
+    }
+
+    if (badgeCount) badgeCount.textContent = credits;
+
+    if (credits <= 0) {
+      // BLOCK studio access
+      if (overlay) overlay.style.display = 'flex';
+      if (badge)   badge.style.display = 'none';
+      // Also prevent any design generation button from firing
+      document.querySelectorAll(
+        '#ai-generate-btn, .generate-btn, [data-action="generate"], #generateBtn'
+      ).forEach(function(btn) {
+        btn.disabled = true;
+        btn.title    = 'Earn Narrative Tokens to generate designs';
+      });
+    } else {
+      // ALLOW — show token badge
+      if (overlay) overlay.style.display = 'none';
+      if (badge) {
+        badge.style.display = 'flex';
+        // Color by token level
+        if (badgeCount) {
+          badgeCount.style.color = credits <= 1 ? '#f59e0b' : '#39A596';
+        }
+        // Click badge → token top-up page
+        badge.onclick = function() { window.location.href = '/pages/narrative-tokens'; };
+      }
+    }
+  }
+
+  async function checkTokens() {
+    if (BYPASS_TOKENS_FOR_UPLOAD) {
+      applyTokenState(null);
+      return;
+    }
+    if (!CREATOR_ID) {
+      // Not logged in — redirect to login
+      applyTokenState(null);
+      return;
+    }
+    try {
+      var resp = await fetch(
+        CREATOR_API + '/api/creator/earnings/summary?creator_id=' + CREATOR_ID,
+        { headers: { 'Accept': 'application/json' } }
+      );
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      var data    = await resp.json();
+      var summary = data.summary || data || {};
+      var credits = (summary.ai_credits != null) ? summary.ai_credits : null;
+      applyTokenState(credits);
+    } catch (e) {
+      console.warn('[MN AI Studio] Token check failed — allowing access:', e.message);
+      applyTokenState(null); // fail open
+    }
+  }
+
+  // Run on DOMContentLoaded
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', checkTokens);
+  } else {
+    checkTokens();
+  }
+
+  // Expose so studio JS can call after generation to update count
+  window.mnUpdateTokenDisplay = applyTokenState;
+})();
+</script>
+
+<!-- AI Design Studio Page — header/footer isolation fix -->
+
+<!-- ═══════════════════════════════════════════════════════════════
+     TASK 1: Upload Button Fix + TASK 4: Back-Button State Machine
+     Injected via JS since {{ page.content }} renders the studio UI
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+(function() {
+  'use strict';
+  var SUPABASE_URL = (window.ENV && window.ENV.SUPABASE_URL) || '';
+  var SUPABASE_ANON_KEY = (window.ENV && window.ENV.SUPABASE_ANON_KEY) || '';
+
+  function savePendingDesign(designData) {
+    if (!designData) return;
+    var payload = Object.assign({}, designData, { saved_at: Date.now() });
+    try {
+      localStorage.setItem('mn_pending_design', JSON.stringify(payload));
+    } catch (err) {
+      console.warn('[MN] localStorage write failed for pending design', err);
+    }
+  }
+
+  function reinjectPlacementPreview(uploadedUrl) {
+    if (!uploadedUrl) return;
+    var selectors = [
+      '.placement-mockup-img', '#final-design-preview',
+      'img[data-role*="mockup"]', 'img[data-role*="preview"]',
+      '#step-3 img', '.mockup-preview img', '.design-preview img'
+    ];
+    selectors.forEach(function(sel) {
+      document.querySelectorAll(sel).forEach(function(node) {
+        if (node && node.tagName === 'IMG') {
+          node.src = uploadedUrl;
+          node.srcset = '';
+          node.setAttribute('data-upload-routed', '1');
+        }
+      });
+    });
+  }
+
+  /** Phantom-click "I HAVE MY OWN PREFERENCES" so upload flow skips AI-vs-manual gate inside Step 3. */
+  function startManualEditorBypass(uploadedUrl) {
+    var attempts = 0;
+    var maxAttempts = 25;
+    var tickMs = 100;
+    var bypassId = setInterval(function() {
+      attempts++;
+      var manualBtn = null;
+      var pool = document.querySelectorAll(
+        'button, a[href], [role="button"], .btn, .manual-mode-btn, .own-preferences-btn, [data-mode="manual"], [data-editor="manual"], [data-choice="manual"]'
+      );
+      for (var i = 0; i < pool.length; i++) {
+        var el = pool[i];
+        var raw = (el.textContent || el.innerText || el.getAttribute('aria-label') || '').toUpperCase().replace(/\s+/g, ' ').trim();
+        if (
+          raw.indexOf('OWN PREFERENCES') !== -1 ||
+          raw.indexOf('I HAVE MY OWN') !== -1 ||
+          (raw.indexOf('MY OWN') !== -1 && raw.indexOf('PREFERENCE') !== -1) ||
+          (raw.indexOf('MANUAL') !== -1 && (raw.indexOf('PLACEMENT') !== -1 || raw.indexOf('FABRIC') !== -1 || raw.indexOf('EDIT') !== -1))
+        ) {
+          manualBtn = el;
+          break;
+        }
+      }
+      if (manualBtn) {
+        try { manualBtn.click(); } catch (e) {}
+        clearInterval(bypassId);
+        setTimeout(function() { reinjectPlacementPreview(uploadedUrl); }, 50);
+        setTimeout(function() { reinjectPlacementPreview(uploadedUrl); }, 350);
+        return;
+      }
+      if (attempts >= maxAttempts) clearInterval(bypassId);
+    }, tickMs);
+  }
+
+  function routeUploadToStudioFlow(file, publicUrl) {
+    var uploadedUrl = publicUrl || '';
+    var title = file && file.name ? file.name.replace(/\.[^.]+$/, '') : 'Uploaded Design';
+    var uploadPayload = {
+      file_name: file && file.name ? file.name : '',
+      file_type: file && file.type ? file.type : '',
+      file_size: file && file.size ? file.size : 0,
+      image_url: uploadedUrl,
+      asset_url: uploadedUrl,
+      title: title,
+      source: 'creator_upload',
+      uploaded_at: new Date().toISOString()
+    };
+
+    // Let any studio implementation consume this without forcing a full finish redirect.
+    window.mnUploadedDesign = uploadPayload;
+    window.dispatchEvent(new CustomEvent('mn:upload-design-ready', { detail: uploadPayload }));
+
+    // Generic /pages/ai-studio visits: align URL + session so creator checkout & mnOnDesignReady work.
+    try {
+      var locUrl = new URL(window.location.href);
+      var curIntent = locUrl.searchParams.get('intent') || '';
+      if (curIntent.indexOf('creator') === -1) {
+        locUrl.searchParams.set('intent', 'creator_upload');
+        history.replaceState(history.state || {}, '', locUrl.toString());
+      }
+      sessionStorage.setItem('mn_creator_intent', 'creator_upload');
+      sessionStorage.setItem('mn_creator_intent_ts', Date.now().toString());
+      window.MN_CREATOR_INTENT = true;
+    } catch (eIntent) {}
+
+    if (window.state && typeof window.state === 'object') {
+      window.state.isUploadedDesign = true;
+      window.state.designSource = 'upload';
+      window.state.uploadedDesignUrl = uploadedUrl;
+      window.state.generatedImage = uploadedUrl;
+      window.state.uploadedDesignMeta = uploadPayload;
+    }
+
+    if (typeof window.goToStep === 'function') {
+      // Step 3 in this studio is Fabric Color + Placement in current flow.
+      window.goToStep(3);
+    } else if (typeof window.renderStep3 === 'function') {
+      window.renderStep3();
+    } else if (typeof window.MNAIStylist !== 'undefined' && typeof window.MNAIStylist.expandWidget === 'function') {
+      window.MNAIStylist.expandWidget();
+    }
+  }
+
+  function showUploadError() {
+    var message = 'Upload failed. Please ensure your file is a valid image under 15MB and try again.';
+    var errEl = document.getElementById('mn-upload-error');
+    if (!errEl) {
+      errEl = document.createElement('div');
+      errEl.id = 'mn-upload-error';
+      errEl.style.cssText = 'margin:10px 0 0;padding:10px 12px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.35);border-radius:10px;color:#fecaca;font-size:12px;line-height:1.45;text-align:center;';
+      var wrapper = document.querySelector('.mn-ai-studio-wrapper') || document.body;
+      if (wrapper) wrapper.prepend(errEl);
+    }
+    errEl.textContent = message;
+    errEl.style.display = 'block';
+  }
+
+  function clearUploadError() {
+    var errEl = document.getElementById('mn-upload-error');
+    if (errEl) errEl.style.display = 'none';
+  }
+
+  function buildUploadFileName(file) {
+    var typeParts = (file && file.type ? file.type : 'image/png').split('/');
+    var ext = (typeParts[1] || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+    var id = (window.crypto && window.crypto.randomUUID)
+      ? window.crypto.randomUUID()
+      : (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8));
+    return 'custom_upload_' + id + '.' + ext;
+  }
+
+  async function uploadDesignAsset(file) {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) throw new Error('missing_supabase_env');
+    if (!file || !file.type || file.type.indexOf('image/') !== 0 || file.size > (15 * 1024 * 1024)) {
+      throw new Error('invalid_file');
+    }
+    var fileName = buildUploadFileName(file);
+    var uploadUrl = SUPABASE_URL + '/storage/v1/object/creator_assets/' + encodeURIComponent(fileName);
+    var resp = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+        apikey: SUPABASE_ANON_KEY,
+        'Content-Type': file.type
+      },
+      body: file
+    });
+    if (!resp.ok) {
+      let errorBody = {};
+      try { errorBody = await resp.json(); } catch(e) {}
+      console.error('[Supabase Upload Blocked]', resp.status, resp.statusText, errorBody);
+      throw new Error('supabase_upload_failed');
+    }
+    return SUPABASE_URL + '/storage/v1/object/public/creator_assets/' + fileName;
+  }
+
+  function consumePendingUploadFromIntent() {
+    var params = new URLSearchParams(window.location.search);
+    if ((params.get('intent') || '') !== 'creator_upload') return;
+    // In creator_upload mode we render sections/creator-upload-studio, which reads
+    // `mn_pending_upload` itself and handles the full placement-editor → draft flow.
+    // Do NOT consume it here; that would strand the user on the AI studio React flow.
+    return;
+  }
+
+  // ── TASK 1: Wire upload button to native file picker ────────────
+  // Finds any button with text "GET STARTED" in the studio and:
+  //   1. Changes text to "CHOOSE DESIGN"
+  //   2. Styles with #39A596 brand color
+  //   3. Wires to a hidden <input type="file"> for native OS gallery
+  function patchUploadButton() {
+    // Find all buttons/links that say "GET STARTED" (case-insensitive)
+    var allBtns = document.querySelectorAll('button, a, [role="button"], input[type="submit"]');
+    allBtns.forEach(function(btn) {
+      var text = (btn.textContent || btn.value || '').trim().toUpperCase();
+      if (text === 'GET STARTED' || text === 'GET STARTED →' || text === 'UPLOAD DESIGN') {
+
+        // Change button text
+        if (btn.tagName === 'INPUT') {
+          btn.value = 'CHOOSE DESIGN';
+        } else {
+          // Preserve any child elements (arrows, icons), just replace text node
+          var hasChildren = btn.children.length > 0;
+          if (hasChildren) {
+            // Replace first text node only
+            for (var i = 0; i < btn.childNodes.length; i++) {
+              if (btn.childNodes[i].nodeType === 3 && btn.childNodes[i].textContent.trim()) {
+                btn.childNodes[i].textContent = 'CHOOSE DESIGN ';
+                break;
+              }
+            }
+          } else {
+            btn.textContent = 'CHOOSE DESIGN';
+          }
+        }
+
+        // Apply #39A596 brand color styling
+        btn.style.cssText += ';background:#39A596 !important;color:#000 !important;border-color:#39A596 !important;';
+
+        // Add quality helper text under upload CTA once.
+        if (!btn.dataset.mnUploadHintPatched) {
+          btn.dataset.mnUploadHintPatched = '1';
+          var hintId = 'mn-upload-quality-hint';
+          if (!document.getElementById(hintId)) {
+            var hint = document.createElement('p');
+            hint.id = hintId;
+            hint.textContent = 'For perfect print quality, upload a high-resolution image with a transparent background.';
+            hint.style.cssText = 'margin:8px 0 0;font-size:12px;line-height:1.45;color:rgba(255,255,255,0.7);text-align:center;';
+            if (btn.parentNode) btn.parentNode.insertBefore(hint, btn.nextSibling);
+          }
+        }
+
+        // Create hidden file input if not already present
+        var fileInputId = 'mn-studio-file-input';
+        var existingInput = document.getElementById(fileInputId);
+        if (!existingInput) {
+          var fileInput = document.createElement('input');
+          fileInput.type = 'file';
+          fileInput.id = fileInputId;
+          fileInput.accept = 'image/*';
+          fileInput.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;';
+          fileInput.setAttribute('aria-hidden', 'true');
+          document.body.appendChild(fileInput);
+
+          // When file selected, dispatch to studio's existing file handler
+          fileInput.addEventListener('change', function() {
+            var file = this.files[0];
+            if (!file) return;
+            clearUploadError();
+            // Try to find studio's own file input and dispatch to it
+            var studioInput = document.querySelector(
+              'input[type="file"]:not(#' + fileInputId + '), #mnw-selfie-input, #design-upload-input, .upload-input'
+            );
+            if (studioInput) {
+              // Transfer file to studio input via DataTransfer
+              try {
+                var dt = new DataTransfer();
+                dt.items.add(file);
+                studioInput.files = dt.files;
+                studioInput.dispatchEvent(new Event('change', { bubbles: true }));
+              } catch(e) {
+                // Fallback: dispatch change event directly on studio input
+                var event = new Event('change', { bubbles: true });
+                studioInput.dispatchEvent(event);
+              }
+            }
+            uploadDesignAsset(file).then(function(publicUrl) {
+              routeUploadToStudioFlow(file, publicUrl);
+            }).catch(function() {
+              showUploadError();
+            });
+          });
+        }
+
+        // Wire button click to open file picker
+        btn.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          document.getElementById(fileInputId).click();
+        });
+
+        console.log('[MN] Upload button patched: GET STARTED → CHOOSE DESIGN');
+      }
+    });
+  }
+
+  // ── TASK 4: Back-Button State Machine ──────────────────────────
+  // Problem: browser back button resets the entire studio canvas,
+  //          losing the first design and dropping user to an empty state.
+  // Solution: Push a history entry when the first design is complete.
+  //           On popstate, intercept and revert to "second design" prompt
+  //           instead of navigating away from the page.
+
+  var MN_HISTORY_STATES = {
+    STUDIO_INITIAL:      'mn_studio_initial',
+    FIRST_DESIGN_DONE:   'mn_first_design_done',
+    SECOND_DESIGN_PROMPT:'mn_second_design_prompt',
+    SECOND_DESIGN_DONE:  'mn_second_design_done',
+  };
+
+  // Save the first completed design so back-nav can restore it
+  var mnFirstDesign = null;
+
+  // Push state when first design is complete
+  window.mnMarkFirstDesignComplete = function(designUuid, imageUrl, title) {
+    mnFirstDesign = { uuid: designUuid, imageUrl: imageUrl, title: title, ts: Date.now() };
+    sessionStorage.setItem('mn_first_design', JSON.stringify(mnFirstDesign));
+
+    // Push state so browser back button lands here instead of previous page
+    history.pushState(
+      { state: MN_HISTORY_STATES.FIRST_DESIGN_DONE, design: mnFirstDesign },
+      '',
+      window.location.href
+    );
+    console.log('[MN] History state pushed: first design complete');
+  };
+
+  // Push state when "second design" prompt is shown
+  window.mnShowSecondDesignPrompt = function() {
+    history.pushState(
+      { state: MN_HISTORY_STATES.SECOND_DESIGN_PROMPT },
+      '',
+      window.location.href
+    );
+    renderSecondDesignPrompt();
+  };
+
+  // Render the "second design" prompt UI
+  function renderSecondDesignPrompt() {
+    var first = mnFirstDesign
+      || JSON.parse(sessionStorage.getItem('mn_first_design') || 'null');
+
+    // Find the studio content container
+    var container = document.getElementById('mn-content-container')
+      || document.querySelector('.mn-studio-main, .studio-content, #studio-container');
+
+    if (!container) return;
+
+    container.innerHTML = [
+      '<div style="text-align:center;padding:2.5rem 1.5rem;max-width:480px;margin:0 auto;">',
+        first && first.imageUrl ? (
+          '<img src="' + first.imageUrl + '" alt="Your design" style="width:120px;height:120px;object-fit:cover;border-radius:0.75rem;border:2px solid rgba(57,165,150,0.4);margin-bottom:1.25rem;">'
+        ) : '',
+        '<div style="font-size:2rem;margin-bottom:0.75rem;">🎨</div>',
+        '<h2 style="font-family:Montserrat,sans-serif;font-size:1.25rem;font-weight:800;color:white;margin:0 0 0.5rem;">',
+          first ? 'Great design! Want to create a second one?' : 'Want to create another design?',
+        '</h2>',
+        '<p style="color:rgba(255,255,255,0.6);font-size:0.875rem;line-height:1.5;margin:0 0 1.5rem;">',
+          'Your first design is saved. You can create another variation or go publish this one.',
+        '</p>',
+        '<div style="display:flex;flex-direction:column;gap:0.75rem;">',
+          '<button id="mn-second-design-yes" style="',
+            'padding:0.875rem 1.5rem;background:#39A596;color:#000;border:none;',
+            'border-radius:0.75rem;font-family:Montserrat,sans-serif;font-weight:700;',
+            'font-size:0.875rem;cursor:pointer;width:100%;transition:background 0.2s;',
+          '">🎨 Yes, create another design</button>',
+          '<button id="mn-second-design-no" style="',
+            'padding:0.875rem 1.5rem;background:transparent;',
+            'border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.7);',
+            'border-radius:0.75rem;font-family:Montserrat,sans-serif;font-weight:600;',
+            'font-size:0.875rem;cursor:pointer;width:100%;transition:all 0.2s;',
+          '">No thanks, publish this design →</button>',
+        '</div>',
+      '</div>'
+    ].join('');
+
+    // Wire buttons
+    var yesBtn = document.getElementById('mn-second-design-yes');
+    var noBtn  = document.getElementById('mn-second-design-no');
+
+    if (yesBtn) yesBtn.addEventListener('click', function() {
+      // Start new design — go back to step 0
+      if (typeof renderStep0 === 'function') renderStep0();
+      else if (typeof window.MNAIStylist !== 'undefined') window.MNAIStylist.expandWidget();
+    });
+
+    if (noBtn) noBtn.addEventListener('click', function() {
+      history.pushState(
+        { state: MN_HISTORY_STATES.SECOND_DESIGN_DONE },
+        '',
+        window.location.href
+      );
+      // Route based on intent:
+      //   - Creator intent  → login (if needed) → onboarding/dashboard via mnOnDesignReady
+      //   - Consumer intent → login (if needed) → cart via mnOnConsumerDesignReady
+      if (window.MN_CREATOR_INTENT) {
+        if (!window.isCustomerLoggedIn) {
+          window.location.href = '/account/register?return_url=' +
+            encodeURIComponent(window.location.pathname + window.location.search);
+          return;
+        }
+        if (typeof window.mnOnDesignReady === 'function' && mnFirstDesign) {
+          window.mnOnDesignReady(mnFirstDesign.uuid, mnFirstDesign.imageUrl, mnFirstDesign.title);
+        } else {
+          window.location.href = '/pages/creator-dashboard';
+        }
+      } else {
+        // Consumer flow — straight to cart, with login/register gate just before it.
+        if (typeof window.mnOnConsumerDesignReady === 'function' && mnFirstDesign) {
+          window.mnOnConsumerDesignReady(mnFirstDesign.uuid, mnFirstDesign.imageUrl, mnFirstDesign.title);
+        } else if (!window.isCustomerLoggedIn) {
+          window.location.href = '/account/login?return_url=/cart';
+        } else {
+          window.location.href = '/cart';
+        }
+      }
+    });
+  }
+
+  // ── popstate handler: intercept browser back ──────────────────
+  window.addEventListener('popstate', function(e) {
+    var historyState = e.state && e.state.state;
+
+    if (historyState === MN_HISTORY_STATES.FIRST_DESIGN_DONE ||
+        historyState === MN_HISTORY_STATES.SECOND_DESIGN_PROMPT ||
+        historyState === MN_HISTORY_STATES.SECOND_DESIGN_DONE) {
+      // User hit back after first design was done
+      // Revert to "second design" prompt — do NOT navigate away
+      e.preventDefault && e.preventDefault();
+
+      // Restore first design from session if lost in memory
+      if (!mnFirstDesign) {
+        mnFirstDesign = JSON.parse(sessionStorage.getItem('mn_first_design') || 'null');
+      }
+
+      renderSecondDesignPrompt();
+      console.log('[MN] Back intercepted — showing second design prompt');
+    }
+    // For all other states, allow normal back navigation
+  });
+
+  // ── Push initial state so popstate fires correctly ────────────
+  history.replaceState(
+    { state: MN_HISTORY_STATES.STUDIO_INITIAL },
+    '',
+    window.location.href
+  );
+
+  // ── Run upload button patch after DOM is ready ────────────────
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+      // Patch immediately + retry after content renders (React/Shopify sections may be async)
+      patchUploadButton();
+      consumePendingUploadFromIntent();
+      setTimeout(patchUploadButton, 500);
+      setTimeout(patchUploadButton, 1500);
+    });
+  } else {
+    patchUploadButton();
+    consumePendingUploadFromIntent();
+    setTimeout(patchUploadButton, 500);
+    setTimeout(patchUploadButton, 1500);
+  }
+
+  // ── MutationObserver: patch dynamically rendered upload buttons ──
+  var patchObserver = new MutationObserver(function(mutations) {
+    mutations.forEach(function(m) {
+      if (m.addedNodes.length) patchUploadButton();
+    });
+  });
+  if (document.body) {
+    patchObserver.observe(document.body, { childList: true, subtree: true });
+  } else {
+    document.addEventListener('DOMContentLoaded', function() {
+      patchObserver.observe(document.body, { childList: true, subtree: true });
+    });
+  }
+
+  // Expose state machine functions globally
+  window.MN_STUDIO_STATE = MN_HISTORY_STATES;
+  window.mnRenderSecondDesignPrompt = renderSecondDesignPrompt;
+})();
+</script>
+
+<!-- INTENT-BASED ROUTING -->
+<script>
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var intent = params.get('intent') || '';
+  var IS_CREATOR_INTENT = intent.indexOf('creator') !== -1;
+
+  function setPendingDesign(designData) {
+    if (!designData) return;
+    var payload = Object.assign({}, designData, { saved_at: Date.now() });
+    try {
+      localStorage.setItem('mn_pending_design', JSON.stringify(payload));
+    } catch (e) {}
+  }
+
+  function isPendingDesignExpired(payload) {
+    if (!payload) return true;
+    var ts = Number(payload.saved_at || 0);
+    if (!ts) return false;
+    return (Date.now() - ts) > (2 * 60 * 60 * 1000);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Effective creator intent — merges URL + sessionStorage with a TTL.
+  //
+  //   Precedence:  URL ?intent=creator_* → sessionStorage mn_creator_intent
+  //                (valid for 2h after set via mn_creator_intent_ts)
+  //
+  // Returns the intent string ('creator_ai' / 'creator_upload' / etc.) when
+  // the current user IS a creator, OR an empty string '' when they are a
+  // normal consumer. Both mnOnDesignReady and the add-to-cart click
+  // interceptor rely on this to decide whether to divert to the creator
+  // onboarding path or let the consumer checkout proceed.
+  // ---------------------------------------------------------------------------
+  function getEffectiveCreatorIntent() {
+    try {
+      var urlIntent = new URLSearchParams(window.location.search).get('intent') || '';
+      if (urlIntent && urlIntent.indexOf('creator') !== -1) return urlIntent;
+      var sessIntent = sessionStorage.getItem('mn_creator_intent') || '';
+      var sessTs     = parseInt(sessionStorage.getItem('mn_creator_intent_ts') || '0', 10);
+      var TTL_MS     = 2 * 60 * 60 * 1000;
+      if (sessIntent && sessTs && (Date.now() - sessTs) < TTL_MS) {
+        if (sessIntent.indexOf('creator') !== -1) return sessIntent;
+      }
+    } catch (e) {}
+    return '';
+  }
+  // Expose globally so mnDiagnose() and other scripts can call it safely.
+  window.getEffectiveCreatorIntent = getEffectiveCreatorIntent;
+
+  // Store intent in sessionStorage so the studio JS can read it
+  if (IS_CREATOR_INTENT) {
+    sessionStorage.setItem('mn_creator_intent', intent);
+    sessionStorage.setItem('mn_creator_intent_ts', Date.now().toString());
+  }
+
+  // Show a subtle banner indicating creator mode.
+  //
+  // IMPORTANT: this script executes INLINE in <body>, which runs BEFORE
+  // the `<div class="mn-ai-studio-wrapper">` later in the template has
+  // been parsed. Previously we tried `document.querySelector('.mn-ai-studio-wrapper')`
+  // synchronously, it returned null, and we fell back to
+  // `document.body.prepend(banner)` with the original `position: fixed`
+  // still in effect. Result: the pill stuck to the viewport at top:72px
+  // and visually overlapped the theme header, the studio content AND
+  // the footer as the user scrolled — which looked like a mis-aligned
+  // header/footer in screenshots.
+  //
+  // Fix: defer the banner mount until DOMContentLoaded so the wrapper
+  // exists, and always mount it as `position: absolute` inside the
+  // wrapper. That way it appears once at the top of the studio content
+  // and scrolls away with the page, leaving the theme chrome clean.
+  if (IS_CREATOR_INTENT) {
+    // Add keyframes once, regardless of when the banner actually mounts.
+    if (!document.getElementById('mnBannerStyles')) {
+      var s = document.createElement('style');
+      s.id = 'mnBannerStyles';
+      s.textContent = [
+        '@keyframes mnBannerIn{from{opacity:0;transform:translateX(-50%) translateY(-8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}',
+        '@keyframes mnDotPulse{0%,100%{opacity:1;box-shadow:0 0 6px #39A596}50%{opacity:0.5;box-shadow:0 0 3px #39A596}}',
+      ].join('');
+      document.head.appendChild(s);
+    }
+
+    var mountCreatorBanner = function() {
+      if (document.getElementById('mnCreatorModeBanner')) return;
+      var banner = document.createElement('div');
+      banner.id = 'mnCreatorModeBanner';
+      // Absolute-positioned pill that scrolls with the page so it can
+      // never overlap the theme footer.
+      banner.style.cssText = [
+        'position:absolute',
+        'top:16px',
+        'left:50%',
+        'transform:translateX(-50%)',
+        'z-index:40',
+        'background:rgba(10,10,10,0.82)',
+        'border:1px solid rgba(57,165,150,0.5)',
+        'border-radius:2rem',
+        'padding:0.35rem 1rem 0.35rem 0.75rem',
+        'display:flex',
+        'align-items:center',
+        'gap:0.45rem',
+        'font-family:Montserrat,sans-serif',
+        'font-size:0.72rem',
+        'font-weight:700',
+        'color:#39A596',
+        'letter-spacing:0.04em',
+        'white-space:nowrap',
+        'pointer-events:none',
+        'box-shadow:0 4px 20px rgba(0,0,0,0.4),0 0 0 1px rgba(57,165,150,0.15)',
+        'animation:mnBannerIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both',
+      ].join(';');
+      banner.innerHTML = '<span style="width:7px;height:7px;background:#39A596;border-radius:50%;display:inline-block;box-shadow:0 0 6px #39A596;animation:mnDotPulse 2s ease infinite;"></span>' +
+        '<span style="color:rgba(255,255,255,0.5);font-weight:600;">' + (intent === 'creator_upload' ? 'Creator Upload' : 'Creator Mode') + '</span>';
+
+      var wrapper = document.querySelector('.mn-ai-studio-wrapper');
+      if (wrapper) {
+        wrapper.prepend(banner);
+      } else {
+        // Last-resort: mount inline at the top of <main> so it still
+        // scrolls with content rather than floating over the footer.
+        var main = document.querySelector('main') || document.body;
+        main.insertBefore(banner, main.firstChild);
+      }
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', mountCreatorBanner);
+    } else {
+      mountCreatorBanner();
+    }
+  }
+
+  // Override the studio's "Add to Cart" / "Buy Now" behavior when in creator intent
+  // Poll for the studio's submit/generate button and intercept it
+  window.MN_CREATOR_INTENT = IS_CREATOR_INTENT;
+
+  // This function is called by the studio when a design is ready
+  // The studio should call: window.mnOnDesignReady(design_uuid, image_url, title)
+  window.mnOnDesignReady = function(designUuid, imageUrl, title) {
+    var effIntent = getEffectiveCreatorIntent();
+
+    // Save design data to localStorage regardless of flow; the intercept click
+    // handler and consumer helper both rely on it being present.
+    var designData = {
+      design_uuid:  designUuid || '',
+      image_url:    imageUrl   || '',
+      title:        title      || 'My Design',
+      intent:       effIntent || 'consumer_design',
+      created_at:   new Date().toISOString(),
+    };
+    setPendingDesign(designData);
+
+    // No creator intent → this is a consumer shopper. Skip onboarding entirely
+    // and route them to cart (with login gate) via the consumer helper.
+    if (!effIntent) {
+      if (typeof window.mnOnConsumerDesignReady === 'function') {
+        window.mnOnConsumerDesignReady(designUuid, imageUrl, title);
+      }
+      return;
+    }
+
+    // Hardcoded Liquid check — more reliable than window.isCustomerLoggedIn
+    var currentCustomerId = '{{ customer.id | default: "" }}';
+
+    if (currentCustomerId !== '') {
+      // User IS logged in — go to first-run profile setup; dashboard comes after publish.
+      var q = 'from=studio&intent=' + encodeURIComponent(effIntent);
+      if (designUuid) q += '&design_id=' + encodeURIComponent(designUuid);
+      window.location.href = '/pages/creator-onboarding?' + q;
+    } else {
+      // User is NOT logged in — register first, then land on onboarding.
+      // Creators MUST sign up before they can publish.
+      var retQ = 'from=studio&intent=' + encodeURIComponent(effIntent);
+      if (designUuid) retQ += '&design_id=' + encodeURIComponent(designUuid);
+      window.location.href = '/account/register?return_url=' +
+        encodeURIComponent('/pages/creator-onboarding?' + retQ);
+    }
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONSUMER FLOW — "just want to try it" path
+  // ═══════════════════════════════════════════════════════════════════════════
+  // When the user arrives on /pages/ai-studio WITHOUT a creator intent, they
+  // are a regular shopper. Don't route them to onboarding or the dashboard —
+  // add the design to their cart and send them to /cart. Gate login only at
+  // that boundary so we don't lose them to "sign up" mid-experience.
+  //
+  // Theme settings can override the default t-shirt variant used for the
+  // print-on-demand parent product via `settings.default_tshirt_variant_id`.
+  // ═══════════════════════════════════════════════════════════════════════════
+  var DEFAULT_TSHIRT_VARIANT_ID =
+    parseInt('{{ settings.default_tshirt_variant_id | default: "" }}', 10) || 0;
+  var DEFAULT_HOODIE_VARIANT_ID =
+    parseInt('{{ settings.default_hoodie_variant_id | default: "" }}', 10) || 0;
+  var IS_LOGGED_IN = '{{ customer.id | default: "" }}' !== '';
+
+  function mnNormalizeProductType(value) {
+    var raw = String(value || '').toLowerCase();
+    if (raw.indexOf('hood') !== -1) return 'hoodie';
+    return 'tee';
+  }
+
+  function mnDefaultVariantForProductType(productType) {
+    return mnNormalizeProductType(productType) === 'hoodie'
+      ? (DEFAULT_HOODIE_VARIANT_ID || DEFAULT_TSHIRT_VARIANT_ID)
+      : DEFAULT_TSHIRT_VARIANT_ID;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Consumer auth modal — lazy-mounted so it doesn't bloat the DOM unless used.
+  // When a not-logged-in shopper tries to add their design to cart, we show a
+  // small popup offering: Login / Create account / Continue as guest.
+  // Shopify's cart cookie persists across login, so "continue as guest" simply
+  // lets them proceed to /cart and checkout without an account.
+  // ---------------------------------------------------------------------------
+  function ensureConsumerAuthModal() {
+    var existing = document.getElementById('mnConsumerAuthModal');
+    if (existing) return existing;
+
+    var wrap = document.createElement('div');
+    wrap.id = 'mnConsumerAuthModal';
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-modal', 'true');
+    wrap.setAttribute('aria-labelledby', 'mnConsumerAuthTitle');
+    wrap.style.cssText = [
+      'display:none', 'position:fixed', 'inset:0',
+      'background:rgba(0,0,0,0.82)', 'backdrop-filter:blur(10px)',
+      'z-index:100000', 'align-items:center', 'justify-content:center',
+      'padding:1.25rem', 'font-family:Montserrat,system-ui,sans-serif'
+    ].join(';');
+    wrap.innerHTML = [
+      '<div style="',
+        'background:#0f0f0f;color:#fff;border:1px solid rgba(57,165,150,0.35);',
+        'border-radius:18px;max-width:440px;width:100%;padding:28px 24px 22px;',
+        'box-shadow:0 30px 80px rgba(0,0,0,0.6);animation:mnTokenGateIn 0.28s ease;',
+      '">',
+        '<div style="text-align:center;margin-bottom:18px">',
+          '<div style="font-size:2.5rem;line-height:1;margin-bottom:10px">👕</div>',
+          '<h3 id="mnConsumerAuthTitle" style="margin:0 0 6px;font-size:1.25rem;font-weight:800;letter-spacing:-0.01em">',
+            'Save your design before checkout',
+          '</h3>',
+          '<p style="margin:0;color:rgba(255,255,255,0.6);font-size:0.9rem;line-height:1.5">',
+            'Sign in or create a free account so your custom design is saved to ',
+            'your order. You can also continue as a guest if you prefer.',
+          '</p>',
+        '</div>',
+        '<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">',
+          '<button id="mnAuthLoginBtn" type="button" style="',
+            'padding:13px 18px;background:linear-gradient(135deg,#39A596,#2dd4bf);',
+            'color:#000;font-weight:800;font-size:0.92rem;letter-spacing:0.04em;',
+            'text-transform:uppercase;border:0;border-radius:12px;cursor:pointer;',
+            'transition:transform 0.15s">Login</button>',
+          '<button id="mnAuthRegisterBtn" type="button" style="',
+            'padding:13px 18px;background:rgba(57,165,150,0.12);',
+            'color:#39A596;font-weight:700;font-size:0.9rem;letter-spacing:0.04em;',
+            'text-transform:uppercase;border:1px solid rgba(57,165,150,0.45);',
+            'border-radius:12px;cursor:pointer;">Create account</button>',
+          '<button id="mnAuthGuestBtn" type="button" style="',
+            'padding:11px 18px;background:transparent;color:rgba(255,255,255,0.6);',
+            'font-weight:600;font-size:0.85rem;border:0;cursor:pointer;',
+            'text-decoration:underline">Continue as guest →</button>',
+        '</div>',
+        '<button id="mnAuthCloseBtn" type="button" aria-label="Close" style="',
+          'position:absolute;top:12px;right:14px;background:transparent;border:0;',
+          'color:rgba(255,255,255,0.4);font-size:1.4rem;cursor:pointer;line-height:1;',
+          'padding:4px 8px">&times;</button>',
+      '</div>'
+    ].join('');
+    // Positioning context for close button
+    wrap.firstChild.style.position = 'relative';
+    document.body.appendChild(wrap);
+
+    wrap.addEventListener('click', function(e) { if (e.target === wrap) hideConsumerAuthModal(); });
+    wrap.querySelector('#mnAuthCloseBtn').addEventListener('click', hideConsumerAuthModal);
+    return wrap;
+  }
+
+  function showConsumerAuthModal(opts) {
+    var modal = ensureConsumerAuthModal();
+    var returnUrl = (opts && opts.returnUrl) || '/cart';
+    var onGuest   = (opts && opts.onGuest)   || function(){ window.location.href = returnUrl; };
+
+    modal.querySelector('#mnAuthLoginBtn').onclick = function() {
+      window.location.href = '/account/login?return_url=' + encodeURIComponent(returnUrl);
+    };
+    modal.querySelector('#mnAuthRegisterBtn').onclick = function() {
+      window.location.href = '/account/register?return_url=' + encodeURIComponent(returnUrl);
+    };
+    modal.querySelector('#mnAuthGuestBtn').onclick = onGuest;
+
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+  function hideConsumerAuthModal() {
+    var modal = document.getElementById('mnConsumerAuthModal');
+    if (modal) modal.style.display = 'none';
+    document.body.style.overflow = '';
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // mnOnConsumerDesignReady — strict Auth-First cart-add + checkout redirect
+  //
+  // Callers of this function MUST already be in a logged-in state. The
+  // new click interceptor below gates unauth'd users into the register
+  // flow BEFORE ever invoking this helper, so there's no modal/login
+  // logic in here any more. The job here is narrowly:
+  //   1. Validate that DEFAULT_TSHIRT_VARIANT_ID is configured (hard-fail
+  //      with an alert if not — this surfaces the bug instead of silently
+  //      bricking the button with "Cart Error.").
+  //   2. POST the design to /cart/add.js.
+  //   3. Send the customer straight to /checkout to maximise conversion.
+  // ═══════════════════════════════════════════════════════════════════════
+  window.mnOnConsumerDesignReady = function(designUuid, imageUrl, title, variantId, extraProps) {
+    var productType = mnNormalizeProductType(extraProps && extraProps._product_type);
+    var variant = variantId || mnDefaultVariantForProductType(productType);
+
+    // Strict variant validation — required by the Auth-First spec.
+    if (!variant || variant === 0 || variant === '0') {
+      alert('Configuration Error: Default print product Variant ID is missing in Theme Settings. Please add it via the Theme Editor.');
+      return;
+    }
+
+    var properties = Object.assign({}, extraProps || {}, {
+      '_design_uuid':  designUuid || '',
+      '_design_title': title      || 'My Design',
+      '_product_type': productType,
+      '_design_file_url': imageUrl || '',
+      '_design_preview_url': imageUrl || '',
+      'Custom Design': imageUrl   || ''
+    });
+
+    fetch('/cart/add.js', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ items: [{ id: variant, quantity: 1, properties: properties }] })
+    })
+    .then(function(r) {
+      if (r.ok) return r.json();
+      return r.text().then(function(txt) {
+        console.error('[MN] consumer cart/add failed:', r.status, txt);
+        throw new Error('cart_add_failed:' + r.status);
+      });
+    })
+    .then(function() {
+      // Straight to checkout, NOT /cart — maximises conversion.
+      window.location.href = '/checkout';
+    })
+    .catch(function(err) {
+      console.error('[MN] Consumer add-to-cart failed:', err);
+      alert(
+        'We couldn\u2019t add your design to the cart. ' +
+        'Please try again in a moment \u2014 your design is still saved.'
+      );
+    });
+  };
+
+  // Intercept any "Add to Cart" / "Buy" / "Publish" clicks from the studio.
+  // The Auth-First click handler below takes TOTAL ownership of the event:
+  // it calls preventDefault() + stopPropagation() so the studio's inline
+  // onclick="finalizeOrder()" never runs, and then routes the user through
+  // a strict state machine (creator/consumer × logged-in/logged-out).
+  //
+  // That means we must now match the studio's own cart button
+  // (`#cart-btn` with onclick="finalizeOrder()") AND any other buttons
+  // wired to finalizeOrder()/addToCart() so they can never bypass the
+  // auth gate with a buggy fetch request.
+  //
+  // CAUTION: `.action-btn` is intentionally NOT in this list. The studio
+  // HTML (inside page.content) reuses `.action-btn` for all primary
+  // buttons — REVEAL MY SLOGANS (#btn-quotes), PROCEED (checkDoubleSide),
+  // YES GENERATE IT (showSecondSideOptions), CHEST/BADGE/FULL BACK
+  // (generateSecondSide), etc. Matching `.action-btn` here would swallow
+  // every one of those clicks and freeze the studio.
+  var CART_SELECTOR = [
+    '[data-action="add-to-cart"]', '.add-to-cart', '#addToCart',
+    '[name="add"]', '.btn-cart', '.product-form__submit',
+    '[data-role="add-to-cart"]', '[data-cart]',
+    '.buy-now-btn', '.mn-buy-btn',
+    // Studio-shipped cart / publish buttons:
+    '#cart-btn', '[onclick*="finalizeOrder"]', '[onclick*="addToCart"]'
+  ].join(', ');
+  var CART_TEXT_RE  = /\b(add to cart|buy now|purchase|get yours|checkout now|order now)\b/i;
+
+  // Explicit allow-list of architect-studio buttons that must NEVER be treated
+  // as cart actions — they drive the AI slogan / visualize / render flow.
+  // Without this guard, selectors like `.action-btn` / `[onclick*="..."]` could
+  // accidentally match and the capture-phase preventDefault()+stopPropagation()
+  // would swallow the click, making the button appear "not clickable".
+  var ARCHITECT_SELECTOR = [
+    '.architect-btn', '.architect-btn-secondary',
+    '#submitBtn', '#continueBtn', '#generateBtn',
+    '.slogan-card', '.visual-preview-card',
+    '[onclick*="captureEmotion"]', '[onclick*="proceedToVisualization"]',
+    '[onclick*="transitionToStudio"]', '[onclick*="resetConsultation"]',
+    '[onclick*="selectSlogan"]',
+    // Studio HTML shipped inside page.content uses these — keep them
+    // here so .action-btn buttons keep working.
+    '#btn-quotes', '#ai-generate-btn', '.ai-generate-btn',
+    '.tone-pill', '.example-pill',
+    '[onclick*="generateQuotes"]', '[onclick*="regenerateQuotes"]',
+    '[onclick*="selectQuote"]', '[onclick*="selectTone"]',
+    '[onclick*="selectExample"]', '[onclick*="checkDoubleSide"]',
+    '[onclick*="showSecondSideOptions"]', '[onclick*="generateSecondSide"]',
+    '[onclick*="generateDesign"]', '[onclick*="selectPlacement"]',
+    '[onclick*="selectFabric"]', '[onclick*="selectColor"]',
+    '[onclick*="selectStyle"]', '[onclick*="proceedToStep"]',
+    '[onclick*="goToStep"]', '[onclick*="switchView"]',
+    '[onclick*="regenerate"]', '[onclick*="continueWith"]'
+  ].join(', ');
+
+  function isArchitectAction(target) {
+    if (!target || target.nodeType !== 1) return false;
+    var node = target, hops = 0;
+    while (node && hops < 4) {
+      if (typeof node.matches === 'function') {
+        try { if (node.matches(ARCHITECT_SELECTOR)) return true; } catch (e) {}
+      }
+      node = node.parentNode;
+      hops++;
+    }
+    return false;
+  }
+
+  function isCartAction(target) {
+    if (!target || target.nodeType !== 1) return false;
+    // Architect studio buttons (REVEAL MY SLOGANS, PROCEED, etc.) must
+    // never be hijacked as cart buttons. The allow-list in
+    // isArchitectAction() explicitly covers them.
+    if (isArchitectAction(target)) return false;
+    // Walk up the DOM a few levels so clicks on inner <span>/<i> icons still count.
+    var node = target, hops = 0;
+    while (node && hops < 4) {
+      if (typeof node.matches === 'function') {
+        try { if (node.matches(CART_SELECTOR)) return true; } catch (e) {}
+      }
+      var txt = (node.textContent || '').trim();
+      if (node.tagName && /^(BUTTON|A)$/.test(node.tagName) && txt && txt.length < 40 && CART_TEXT_RE.test(txt)) {
+        return true;
+      }
+      node = node.parentNode;
+      hops++;
+    }
+    return false;
+  }
+
+  console.info('[MN studio] Auth-First interceptor armed. MN_CREATOR_INTENT=' + !!window.MN_CREATOR_INTENT);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // AUTH-FIRST CART CLICK INTERCEPTOR
+  //
+  // The studio's inline onclick="finalizeOrder()" fires a /cart/add.js POST
+  // using a variant/property payload built from state variables that are
+  // (a) scoped locally to the studio's IIFE and (b) often missing or wrong
+  // → Shopify returns "Cart Error." and no auth gate ever triggers.
+  //
+  // This handler takes TOTAL ownership of the click:
+  //   1. preventDefault() + stopPropagation() — unconditional. The native
+  //      studio fetch is killed before it can fire.
+  //   2. Branch on creator intent × login state and route accordingly.
+  // ═══════════════════════════════════════════════════════════════════════
+  document.addEventListener('click', function(e) {
+    if (!isCartAction(e.target)) return;
+
+    // Kill the studio's native cart-add + redirect UNCONDITIONALLY.
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === 'function') {
+      e.stopImmediatePropagation();
+    }
+
+    var effIntent = getEffectiveCreatorIntent();
+    console.info('[MN studio] cart-button click intercepted. effIntent=' +
+      (effIntent || '(none — consumer)') + ' logged_in=' + IS_LOGGED_IN);
+
+    // ─── Creator flow ────────────────────────────────────────────────
+    if (effIntent) {
+      var onboardingUrl = '/pages/creator-onboarding?from=studio&intent=' + encodeURIComponent(effIntent);
+      if (IS_LOGGED_IN) {
+        window.location.href = onboardingUrl;
+      } else {
+        window.location.href = '/account/register?return_url=' + encodeURIComponent(onboardingUrl);
+      }
+      return;
+    }
+
+    // ─── Consumer flow ───────────────────────────────────────────────
+    if (IS_LOGGED_IN) {
+      // Read the pending design from localStorage and ship it straight
+      // to cart + checkout.
+      var raw = null;
+      try { raw = localStorage.getItem('mn_pending_design'); } catch (err) {}
+      var parsed = null;
+      if (raw) { try { parsed = JSON.parse(raw); } catch (err) {} }
+
+      var uuid  = (parsed && (parsed.design_uuid || parsed.uuid))        || '';
+      var img   = (parsed && (parsed.image_url   || parsed.imageUrl))    || '';
+      var title = (parsed && parsed.title)                                || 'My Design';
+
+      window.mnOnConsumerDesignReady(uuid, img, title, null, {
+        '_product_type': (parsed && parsed.product_type) || 'tee'
+      });
+      return;
+    }
+
+    // Logged-out consumer: set the resume flag, send them to register
+    // with a return URL back to this exact page. When they come back,
+    // the auto-resume listener below will fire mnOnConsumerDesignReady
+    // automatically.
+    try { sessionStorage.setItem('mn_resume_checkout', 'true'); } catch (err) {}
+    var here = window.location.pathname + window.location.search;
+    window.location.href = '/account/register?return_url=' + encodeURIComponent(here);
+  }, true);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // AUTO-RESUME CHECKOUT
+  //
+  // After a logged-out consumer registers/logs in, Shopify bounces them
+  // back to the studio page via the `return_url` we set above. If the
+  // `mn_resume_checkout` flag is present in sessionStorage and the user
+  // is now authenticated, we immediately re-trigger the cart-add so the
+  // user ends up on /checkout without having to click again.
+  // ═══════════════════════════════════════════════════════════════════════
+  function mnAutoResumeCheckout() {
+    if (!IS_LOGGED_IN) return;
+    var flag = null;
+    try { flag = sessionStorage.getItem('mn_resume_checkout'); } catch (err) {}
+    if (flag !== 'true') return;
+    try { sessionStorage.removeItem('mn_resume_checkout'); } catch (err) {}
+
+    var raw = null;
+    try { raw = localStorage.getItem('mn_pending_design'); } catch (err) {}
+    if (!raw) {
+      console.warn('[MN studio] auto-resume skipped: no mn_pending_design in localStorage');
+      return;
+    }
+    var parsed = null;
+    try { parsed = JSON.parse(raw); } catch (err) {}
+    if (!parsed) return;
+
+    console.info('[MN studio] ✅ auto-resume firing mnOnConsumerDesignReady after auth round-trip');
+    window.mnOnConsumerDesignReady(
+      parsed.design_uuid || parsed.uuid     || '',
+      parsed.image_url   || parsed.imageUrl || '',
+      parsed.title                          || 'My Design',
+      null,
+      { '_product_type': parsed.product_type || 'tee' }
+    );
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mnAutoResumeCheckout);
+  } else {
+    mnAutoResumeCheckout();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public diagnostic helper — paste `mnDiagnose()` in the browser console.
+  // ---------------------------------------------------------------------------
+  window.mnDiagnose = function mnDiagnose() {
+    var raw = localStorage.getItem('mn_pending_design');
+    var parsed = null;
+    try { parsed = raw ? JSON.parse(raw) : null; } catch(e) {}
+    var report = {
+      page_url:           window.location.href,
+      url_intent:         new URLSearchParams(window.location.search).get('intent') || '(none)',
+      session_intent:     sessionStorage.getItem('mn_creator_intent') || '(none)',
+      resume_checkout:    sessionStorage.getItem('mn_resume_checkout') || '(none)',
+      MN_CREATOR_INTENT:  !!window.MN_CREATOR_INTENT,
+      effective_intent:   (typeof getEffectiveCreatorIntent === 'function') ? getEffectiveCreatorIntent() : '(fn missing)',
+      is_logged_in:       IS_LOGGED_IN,
+      default_tshirt_variant_id: DEFAULT_TSHIRT_VARIANT_ID || '(NOT SET — theme settings → My Narrative → Print-on-Demand Products)',
+      pending_design:     parsed || '(none in localStorage)',
+      consumer_helper:    typeof window.mnOnConsumerDesignReady,
+      creator_helper:     typeof window.mnOnDesignReady,
+      auth_modal_mount:   typeof ensureConsumerAuthModal,
+      finalizeOrder:      typeof window.finalizeOrder + ' (studio-owned, intercepted by Auth-First click gate)',
+      interceptor_mode:   'auth-first (preventDefault + stopPropagation always)',
+    };
+    console.table(report);
+    console.log('[MN diagnose] Full object:', report);
+    return report;
+  };
+  console.info('[MN studio] Paste `mnDiagnose()` in this console for a pipeline health-check.');
+})();
+</script>
+
+<style>
+  /* =================================================================
+     AI STUDIO — CSS QUARANTINE WRAPPER
+     =================================================================
+     The studio HTML stored in `page.content` is the ONLY thing allowed
+     to paint inside `.mn-ai-studio-wrapper`. All studio CSS has been
+     prefixed with `.mn-ai-studio-wrapper` so it cannot leak into the
+     Shopify theme chrome (header / footer / other pages).
+
+     What this block does — and, more importantly, does NOT do:
+
+       ✓  Sandboxes the studio's stacking context via `isolation: isolate`
+          so high z-index values inside the studio can't climb over the
+          sticky theme navbar.
+       ✓  Clips any studio content that tries to escape the wrapper
+          horizontally or vertically via `overflow: hidden`.
+       ✓  Keeps the wrapper in normal document flow (`position: relative`,
+          NO absolute positioning, NO fixed height) so the theme footer
+          lands naturally beneath it on every page.
+
+       ✗  Does NOT touch <html> or <body>. We deliberately do not mutate
+          the global document so the header/footer on these pages render
+          exactly the same as every other page on the site.
+       ✗  Does NOT override `#shopify-section-navbar` / `#shopify-section-footer`.
+       ✗  Does NOT paint a background — the wrapper is transparent and the
+          studio's own gradient (now scoped inside page.content) handles it.
+     ================================================================= */
+  .mn-ai-studio-wrapper {
+    position: relative;
+    width: 100%;
+    isolation: isolate;
+    overflow: hidden;
+    z-index: 0;
+    animation: mnStudioFadeIn 0.35s ease-out both;
+  }
+  @keyframes mnStudioFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+</style>
+
+{% comment %} =============================================================================
+CREATOR UPLOAD FLOW — Liquid URL Fork (legacy/backward-compat path)
+The preferred upload entry point is now /pages/placement-editor, which renders
+creator-upload-studio directly. We keep this fork so that any old links to
+/pages/ai-studio?intent=creator_upload still land the user on the editor
+instead of the AI studio.
+
+NOTE: `request.url` in Shopify Liquid does NOT include the query string,
+so we must read `request.query_parameters.intent` instead.
+================================================================================= {% endcomment %}
+{% assign is_upload_mode = false %}
+{% assign url_intent = request.query_parameters.intent | default: '' %}
+{% if url_intent == 'creator_upload' %}
+  {% assign is_upload_mode = true %}
+{% endif %}
+
+{% if is_upload_mode %}
+  {% section 'creator-upload-studio' %}
+{% else %}
+<div class="mn-ai-studio-wrapper">
+{% assign is_logged_in = false %}
+{% if customer.id != blank %}
+  {% assign is_logged_in = true %}
+{% endif %}
+{{ page.content }}
+</div>
+{% endif %}
+
+{% comment %} Buy-to-Publish Modal {% endcomment %}
+<div class="mn-modal-overlay" id="mnBuyToPublishModal">
+  <div class="mn-modal" style="max-width: 500px; text-align: center;">
+    <div style="width: 80px; height: 80px; margin: 0 auto 20px; background: linear-gradient(135deg, #39A596, #2dd4bf); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+        <path d="M2 17l10 5 10-5"/>
+        <path d="M2 12l10 5 10-5"/>
+      </svg>
+    </div>
+    <h3 class="mn-modal-title" style="font-size: 22px; margin-bottom: 12px;">Own & Drop This Design</h3>
+    <p style="color: rgba(255,255,255,0.7); font-size: 15px; line-height: 1.6; margin-bottom: 24px;">
+      To list this design on the My Narrative marketplace and earn up to <strong style="color: #39A596;">45% commission</strong>, you must own the first piece. Let's get it to your door.
+    </p>
+    
+    <div id="mnAuthSection">
+      <p style="color: rgba(255,255,255,0.5); font-size: 13px; margin-bottom: 16px;">
+        Sign in or create an account to continue
+      </p>
+      <a href="{{ routes.account_login_url }}?return_url=/pages/ai-studio" class="mn-onboarding-btn" style="display: block; text-decoration: none; box-sizing: border-box;">
+        Sign In / Create Account
+      </a>
+    </div>
+
+    <div id="mnCheckoutSection" style="display: none;">
+      <p style="color: rgba(255,255,255,0.5); font-size: 13px; margin-bottom: 16px;">
+        Ready to own this design? You'll receive the physical piece and your design will be published automatically.
+      </p>
+      <button class="mn-onboarding-btn" id="mnProceedToCheckout" style="width: 100%; box-sizing: border-box;">
+        Proceed to Checkout
+      </button>
+    </div>
+    
+    <p style="color: rgba(255,255,255,0.4); font-size: 12px; margin-top: 16px; cursor: pointer;" id="mnCancelBuyToPublish">
+      Maybe later
+    </p>
+  </div>
+</div>
+
+<style>
+  .mn-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 10000;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    backdrop-filter: blur(8px);
+  }
+  
+  .mn-modal-overlay.active {
+    display: flex;
+  }
+  
+  .mn-modal {
+    background: #111;
+    border: 1px solid rgba(57, 165, 150, 0.3);
+    border-radius: 20px;
+    padding: 32px;
+    max-width: 400px;
+    width: 100%;
+    position: relative;
+    z-index: 10001;
+    animation: modalSlideIn 0.3s ease;
+  }
+  
+  @keyframes modalSlideIn {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .mn-onboarding-btn {
+    width: 100%;
+    padding: 16px 24px;
+    background: linear-gradient(135deg, #39A596, #2dd4bf);
+    border: none;
+    border-radius: 12px;
+    color: #000;
+    font-family: 'Montserrat', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+  
+  .mn-onboarding-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px rgba(57, 165, 150, 0.4);
+  }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Check if user is logged in
+  const isLoggedIn = {{ is_logged_in }};
+  
+  // Function to show the buy-to-publish modal
+  window.showBuyToPublishModal = function() {
+    document.getElementById('mnBuyToPublishModal').classList.add('active');
+    
+    if (isLoggedIn) {
+      document.getElementById('mnAuthSection').style.display = 'none';
+      document.getElementById('mnCheckoutSection').style.display = 'block';
+    } else {
+      document.getElementById('mnAuthSection').style.display = 'block';
+      document.getElementById('mnCheckoutSection').style.display = 'none';
+    }
+  };
+  
+  // Function to hide the modal
+  window.hideBuyToPublishModal = function() {
+    document.getElementById('mnBuyToPublishModal').classList.remove('active');
+  };
+  
+  // Cancel button
+  document.getElementById('mnCancelBuyToPublish')?.addEventListener('click', hideBuyToPublishModal);
+  
+  // Proceed to checkout
+  document.getElementById('mnProceedToCheckout')?.addEventListener('click', async function() {
+    // Pull design data from runtime state first, then local storage fallback.
+    const stateDesign = (typeof window !== 'undefined' && window.state) ? window.state : {};
+    const storedDesign = JSON.parse(localStorage.getItem('mn_current_design') || '{}');
+    const designData = {
+      uuid: stateDesign.design_uuid || stateDesign.designUuid || storedDesign.uuid || storedDesign.design_uuid || '',
+      imageUrl: stateDesign.imageUrl || stateDesign.image_url || storedDesign.imageUrl || storedDesign.image_url || ''
+    };
+
+    if (!designData.uuid || !designData.imageUrl) {
+      alert('Please generate a design first');
+      return;
+    }
+    
+    this.disabled = true;
+    this.textContent = 'Adding Sample Kit...';
+
+    try {
+      // Variant ID is driven by theme settings. Sample-kit variant falls back
+      // to the default t-shirt variant so the button still works if the store
+      // hasn't set up a separate sample-kit SKU yet.
+      var SAMPLE_KIT_VARIANT_ID =
+        parseInt('{{ settings.creator_sample_kit_variant_id | default: "" }}', 10) ||
+        parseInt('{{ settings.default_tshirt_variant_id | default: "" }}', 10) || 0;
+
+      if (!SAMPLE_KIT_VARIANT_ID) {
+        alert(
+          'We can\u2019t add this to your cart yet \u2014 the store owner hasn\u2019t ' +
+          'configured a Creator Sample Kit product. Please email support or try again later.'
+        );
+        this.disabled = false;
+        this.textContent = 'Proceed to Checkout';
+        return;
+      }
+
+      const response = await fetch('/cart/add.js', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          items: [{
+            id: SAMPLE_KIT_VARIANT_ID,
+            quantity: 1,
+            properties: {
+              '_design_uuid': designData.uuid,
+              '_is_sample_kit': 'true',
+              'Design Image': designData.imageUrl
+            }
+          }]
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[MN] sample-kit cart/add failed:', response.status, errorText);
+        alert(
+          'Couldn\u2019t add the sample kit to your cart. ' +
+          'Please try again, or contact support if this keeps happening.'
+        );
+        throw new Error(errorText || 'Failed to add sample kit to cart');
+      }
+
+      window.location.href = '/checkout';
+    } catch (error) {
+      console.error('Error:', error);
+      this.disabled = false;
+      this.textContent = 'Proceed to Checkout';
+    }
+  });
+  
+  // Close modal on overlay click
+  document.getElementById('mnBuyToPublishModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+      hideBuyToPublishModal();
+    }
+  });
+});
+</script>
+
+<!-- 🎁 GIFT MODE RECEIVER SCRIPT (Enhanced with Psychological UX) -->
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const pendingDesign = localStorage.getItem('mn_pending_design');
+  
+  if (pendingDesign) {
+    try {
+      const data = JSON.parse(pendingDesign);
+      
+      // Check if data is valid and recent (< 1 hour)
+      if (data.slogan && (Date.now() - data.timestamp) < 3600000) {
+        
+        console.log("🎁 Gift Mode Activated");
+
+        // 1. Inject Data into State
+        if (typeof state !== 'undefined') {
+          state.isGiftMode = true; // flag for other functions
+          state.giftContext = data.context; // save the full context (recipient, occasion, etc)
+          state.selectedQuote = data.slogan;
+          state.topic = `Gift for ${data.context.recipient}`;
+          
+          console.log("✅ Gift Mode State Set:", {
+            slogan: state.selectedQuote,
+            topic: state.topic,
+            context: state.giftContext
+          });
+          
+          // 2. PSYCHOLOGICAL HEADER CHANGE
+          setTimeout(() => {
+            const titleEl = document.querySelector('#step-3 .cinematic-title');
+            const subEl = document.querySelector('#step-3 .cinematic-subtitle');
+            
+            if (titleEl) {
+              titleEl.innerText = "How Should The Design Look?";
+              console.log("✅ Header updated: Step 3 title");
+            }
+            if (subEl) {
+              subEl.innerText = `Perfect! We have your message for ${data.context.recipient}. Now let's bring it to life.`;
+              console.log("✅ Header updated: Step 3 subtitle");
+            }
+          }, 150);
+
+          // 3. MODIFY AI OVERLAY FOR GIFT MODE - Remove Vibe Question
+          setTimeout(() => {
+            if (state.isGiftMode) {
+              const vibeQuestion = document.querySelector('.ai-question:last-child');
+              if (vibeQuestion && vibeQuestion.innerHTML.includes('feels most like you')) {
+                vibeQuestion.style.display = 'none';
+                console.log("✅ Removed vibe question for gift mode");
+                
+                // Auto-set vibe based on occasion
+                const occasionMap = {
+                  'Birthday': 'bold',
+                  'Anniversary': 'calm',
+                  'New Job': 'disciplined',
+                  'Breakup Support': 'healing',
+                  'First Date': 'light',
+                  'Motivation Gift': 'disciplined',
+                  'Inside Joke': 'free',
+                  'Everyday Wear': 'calm'
+                };
+                state.aiVibe = occasionMap[data.context.occasion] || 'calm';
+                console.log(`✅ Auto-set vibe to: ${state.aiVibe} (based on ${data.context.occasion})`);
+              }
+              
+              // Update AI generate button check to not require vibe in gift mode
+              const originalCheckAIReady = window.checkAIReady;
+              window.checkAIReady = function() {
+                if (state.isGiftMode) {
+                  if(state.aiColor && state.aiPlacement) {
+                    document.getElementById('ai-generate-btn').classList.add('ready');
+                  }
+                } else {
+                  if (originalCheckAIReady) originalCheckAIReady();
+                }
+              };
+            }
+          }, 200);
+
+          // 4. Auto-Skip to Step 3 - Wait for function to be ready
+          const jumpToStep3 = () => {
+            if (typeof goToStep === 'function') {
+              console.log("🚀 Jumping to Step 3...");
+              goToStep(3);
+            } else {
+              console.log("⏳ Waiting for goToStep function...");
+              setTimeout(jumpToStep3, 200);
+            }
+          };
+          setTimeout(jumpToStep3, 300);
+        } else {
+          console.warn("⚠️ State object not found");
+        }
+      }
+      
+      // Clear only gift-mode payloads; keep creator pending designs intact.
+      if (data && data.slogan) {
+        localStorage.removeItem('mn_pending_design');
+        console.log("🗑️ Cleared gift payload from localStorage");
+      }
+      
+    } catch (e) {
+      console.error("❌ Error loading gift context:", e);
+    }
+  } else {
+    console.log("ℹ️ No gift mode data. Normal page load.");
+  }
+});
+</script>
+
+{% comment %}
+=================================================================================
+AI STUDIO WIRING — OpenAI slogans + gpt-image-1 designs
+=================================================================================
+The page content (narrative-architect-complete.html) ships with hardcoded
+slogans and four stock preview images, plus a `transitionToStudio()` that only
+fires an alert. This block monkey-patches those three functions AFTER the page
+content has executed, so we don't have to modify the user-maintained HTML.
+
+Flow:
+  1) captureEmotion  →  POST /api/ai/slogans     (8 AI-generated slogans)
+  2) displayVisualPreviews → 4× parallel POST /api/ai/design-image
+                              (gpt-image-1 + Supabase upload → stable URL)
+  3) transitionToStudio   →  POST /api/designs/submit (draft) → mnOnDesignReady
+                              (which then routes to consumer cart or creator onboarding)
+
+All three steps gracefully fall back to the hardcoded profile if the backend
+is unreachable, so the studio never becomes a dead-end.
+================================================================================= {% endcomment %}
+<script>
+(function mnWireAIStudio() {
+  'use strict';
+
+  // Only run on the AI studio (not on the creator_upload fork)
+  var upParams = new URLSearchParams(window.location.search);
+  if ((upParams.get('intent') || '') === 'creator_upload') return;
+
+  var CREATOR_API = (window.MN_CREATOR_API
+    || 'https://drishti-api-blond.vercel.app');
+  var CUSTOMER_ID = '{{ customer.id | default: "" }}';
+
+  // Style variants we ask gpt-image-1 to render for step 3.
+  var STYLE_VARIANTS = [
+    { name: 'Minimalist Type',    descriptor: 'minimalist typography, bold geometric sans-serif, centered lockup, clean flat vector, two-color limit' },
+    { name: 'Streetwear Graphic', descriptor: 'streetwear graphic print, bold illustrative emblem with the slogan as a banner, high contrast flat ink' },
+    { name: 'Vintage 90s',        descriptor: '1990s vintage band-tee aesthetic, warped serif type, muted earth palette, lightly distressed silkscreen texture' },
+    { name: 'Y2K Chrome',         descriptor: 'Y2K chrome bubble lettering, metallic reflections stylised flat, silver / cyan / magenta accent, futurist layout' }
+  ];
+
+  // ---------- helpers -----------------------------------------------------
+
+  function waitFor(test, onReady, opts) {
+    opts = opts || {};
+    var maxMs = opts.maxMs || 8000;
+    var interval = opts.interval || 120;
+    var start = Date.now();
+    (function tick() {
+      if (test()) return onReady();
+      if (Date.now() - start > maxMs) {
+        if (opts.onTimeout) opts.onTimeout();
+        return;
+      }
+      setTimeout(tick, interval);
+    })();
+  }
+
+  function getOriginalDetect() {
+    try {
+      return (typeof NarrativeArchitect !== 'undefined'
+              && typeof NarrativeArchitect.detectNarrative === 'function')
+        ? NarrativeArchitect.detectNarrative.bind(NarrativeArchitect)
+        : null;
+    } catch (e) { return null; }
+  }
+
+  function setLoadingButton(btnId, textId, text) {
+    var btn = document.getElementById(btnId);
+    var txt = textId ? document.getElementById(textId) : null;
+    if (btn) btn.disabled = text === 'loading';
+    if (txt && typeof text === 'string' && text !== 'loading') txt.textContent = text;
+  }
+
+  // ---------- 1. AI slogan generator --------------------------------------
+
+  async function mnFetchSlogans(input, tone) {
+    try {
+      var resp = await fetch(CREATOR_API + '/api/ai/slogans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ topic: input, tone: tone || 'personal, honest' })
+      });
+      if (!resp.ok) throw new Error('http_' + resp.status);
+      var data = await resp.json();
+      if (data && data.success && Array.isArray(data.quotes) && data.quotes.length) {
+        return data.quotes.slice(0, 8);
+      }
+      throw new Error('empty_response');
+    } catch (e) {
+      console.warn('[MN AI Studio] Slogan backend failed, falling back:', e);
+      return null;
+    }
+  }
+
+  function patchCaptureEmotion() {
+    if (typeof window.captureEmotion !== 'function') return false;
+    if (window.__mnCaptureEmotionPatched) return true;
+    window.__mnCaptureEmotionPatched = true;
+
+    var origDetect = getOriginalDetect();
+
+    window.captureEmotion = async function mnCaptureEmotion() {
+      var inputEl = document.getElementById('userInput');
+      var input = inputEl ? (inputEl.value || '').trim() : '';
+      if (!input) { alert('Your narrative is waiting. Speak your truth.'); return; }
+
+      var btn = document.getElementById('submitBtn');
+      var btnText = document.getElementById('btnText');
+      if (btnText) btnText.textContent = 'ANALYZING...';
+      if (btn) btn.disabled = true;
+
+      // Still use the hardcoded profile for style/color defaults — these feed
+      // into image generation — but replace the slogan array with AI output.
+      var narrative = origDetect ? origDetect(input) : {
+        key: 'universal',
+        profile: {
+          slogans: [],
+          voiceResponse: 'Your signal is clear. Let\u2019s calibrate it.',
+          style: 'minimalist typography',
+          tone: 'personal, honest',
+          colors: ['black', 'white']
+        }
+      };
+
+      var aiSlogans = await mnFetchSlogans(input, narrative.profile.tone);
+      var slogans = aiSlogans && aiSlogans.length
+        ? aiSlogans
+        : (narrative.profile.slogans || []);
+
+      window.currentRecommendation = {
+        slogans: slogans,
+        voiceResponse: narrative.profile.voiceResponse,
+        recommendedStyle: narrative.profile.style,
+        recommendedTone: narrative.profile.tone,
+        recommendedColors: narrative.profile.colors,
+        detectedNarrative: narrative.key,
+        primaryColor: (narrative.profile.colors && narrative.profile.colors[0]) || 'black'
+      };
+      window.userProfile = {
+        rawInput: input,
+        detectedNarrative: narrative.key,
+        timestamp: new Date().toISOString()
+      };
+
+      if (typeof displaySlogans === 'function') displaySlogans(window.currentRecommendation);
+
+      if (btnText) btnText.textContent = 'DECODE MY SIGNAL';
+      if (btn) btn.disabled = false;
+
+      var sloganWindow = document.getElementById('sloganWindow');
+      if (sloganWindow) {
+        sloganWindow.classList.remove('hidden');
+        sloganWindow.scrollIntoView({ behavior: 'smooth' });
+      }
+    };
+    console.log('[MN AI Studio] captureEmotion → OpenAI wired');
+    return true;
+  }
+
+  // ---------- 2. AI image generator ---------------------------------------
+
+  async function mnFetchDesignImage(slogan, styleDescriptor, color, sourceInput) {
+    var resp = await fetch(CREATOR_API + '/api/ai/design-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        slogan: slogan,
+        style: styleDescriptor,
+        color: color || 'black',
+        source_input: sourceInput || ''
+      })
+    });
+    var data = {};
+    try { data = await resp.json(); } catch (e) {}
+    if (!resp.ok || !data || !data.success || !data.image_url) {
+      throw new Error((data && data.error) || ('http_' + resp.status));
+    }
+    return data.image_url;
+  }
+
+  function renderPreviewPlaceholder(gridEl, styleName) {
+    var card = document.createElement('div');
+    card.className = 'preview-card mn-preview-card';
+    card.innerHTML =
+      '<div class="mn-preview-skeleton" style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;'
+    + 'background:linear-gradient(110deg,#1a1a1a 8%,#262626 18%,#1a1a1a 33%);background-size:200% 100%;'
+    + 'animation:mnPreviewShimmer 1.4s linear infinite;color:rgba(255,255,255,0.35);font-size:0.75rem;letter-spacing:0.08em;">'
+    + 'GENERATING...</div>'
+    + '<div class="preview-label">' + styleName + '</div>';
+    gridEl.appendChild(card);
+    return card;
+  }
+
+  function ensureShimmerKeyframes() {
+    if (document.getElementById('mnPreviewShimmerKF')) return;
+    var s = document.createElement('style');
+    s.id = 'mnPreviewShimmerKF';
+    s.textContent = '@keyframes mnPreviewShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}'
+                  + '.mn-preview-card.selected{outline:2px solid #39A596;outline-offset:2px;}';
+    document.head.appendChild(s);
+  }
+
+  function patchDisplayVisualPreviews() {
+    if (typeof window.displayVisualPreviews !== 'function') return false;
+    if (window.__mnDisplayVisualPatched) return true;
+    window.__mnDisplayVisualPatched = true;
+
+    ensureShimmerKeyframes();
+
+    window.displayVisualPreviews = async function mnDisplayVisualPreviews() {
+      var grid = document.getElementById('visualGrid');
+      if (!grid) return;
+      grid.innerHTML = '';
+
+      var slogan = window.selectedSlogan || '';
+      if (!slogan) {
+        grid.innerHTML = '<div style="padding:2rem;color:rgba(239,68,68,0.75);text-align:center;">Pick a slogan first.</div>';
+        return;
+      }
+
+      var rec = window.currentRecommendation || {};
+      var sourceInput = (window.userProfile && window.userProfile.rawInput) || '';
+      var color = rec.primaryColor || 'black';
+
+      // Reset the "selected design" state for this round.
+      window.mnSelectedDesignImage = null;
+      window.mnSelectedDesignStyle = null;
+
+      // Fire the 4 requests in parallel; each card fills in independently.
+      var tasks = STYLE_VARIANTS.map(function(variant) {
+        var card = renderPreviewPlaceholder(grid, variant.name);
+        return mnFetchDesignImage(slogan, variant.descriptor, color, sourceInput)
+          .then(function(imageUrl) {
+            card.innerHTML =
+              '<img src="' + imageUrl + '" alt="' + variant.name + '" style="width:100%;aspect-ratio:1;object-fit:cover;background:#0d0d0d;">'
+            + '<div class="preview-label">' + variant.name + '</div>';
+            card.dataset.imageUrl = imageUrl;
+            card.dataset.styleName = variant.name;
+            card.onclick = function() {
+              document.querySelectorAll('.mn-preview-card, .preview-card').forEach(function(c) {
+                c.classList.remove('selected');
+              });
+              card.classList.add('selected');
+              window.mnSelectedDesignImage = imageUrl;
+              window.mnSelectedDesignStyle = variant.name;
+            };
+            // Auto-select the first successful variant so "Continue" is always armed.
+            if (!window.mnSelectedDesignImage) {
+              card.click();
+            }
+          })
+          .catch(function(err) {
+            console.warn('[MN AI Studio] Image failed for', variant.name, err);
+            card.innerHTML =
+              '<div style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;'
+            + 'background:rgba(239,68,68,0.08);border:1px dashed rgba(239,68,68,0.4);'
+            + 'color:rgba(239,68,68,0.8);font-size:0.75rem;padding:1rem;text-align:center;">'
+            + 'Generation failed.<br><span style="opacity:0.65">Try a different slogan.</span></div>'
+            + '<div class="preview-label">' + variant.name + '</div>';
+          });
+      });
+
+      await Promise.all(tasks);
+    };
+    console.log('[MN AI Studio] displayVisualPreviews → gpt-image-1 wired');
+    return true;
+  }
+
+  // ---------- 3. Finalise → draft + mnOnDesignReady -----------------------
+
+  async function mnSubmitDraft(imageUrl, slogan, styleName, color) {
+    if (!CUSTOMER_ID) return ''; // anonymous — skip backend, let mnOnDesignReady gate auth
+    try {
+      var resp = await fetch(CREATOR_API + '/api/designs/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          user_id: CUSTOMER_ID,
+          title: (slogan || 'My Design').slice(0, 80),
+          slogan: slogan,
+          design_file_url: imageUrl,
+          flat_image_url:  imageUrl,
+          image_url:       imageUrl,
+          source: 'creator_ai',
+          style:  styleName || 'Minimalist Type',
+          color:  color || 'black',
+          status: 'draft'
+        })
+      });
+      var json = {};
+      try { json = await resp.json(); } catch (e) {}
+      return (json && (json.design_id || json.id)) || '';
+    } catch (e) {
+      console.warn('[MN AI Studio] Draft save failed:', e);
+      return '';
+    }
+  }
+
+  function patchTransitionToStudio() {
+    if (typeof window.transitionToStudio !== 'function') return false;
+    if (window.__mnTransitionPatched) return true;
+    window.__mnTransitionPatched = true;
+
+    window.transitionToStudio = async function mnTransitionToStudio() {
+      var imageUrl = window.mnSelectedDesignImage;
+      var slogan   = window.selectedSlogan || '';
+      var styleName = window.mnSelectedDesignStyle
+        || (window.currentRecommendation && window.currentRecommendation.recommendedStyle)
+        || 'Minimalist Type';
+      var color    = (window.currentRecommendation && window.currentRecommendation.primaryColor) || 'black';
+
+      if (!imageUrl) {
+        alert('Pick one of the generated designs first.');
+        return;
+      }
+
+      var btn = document.getElementById('generateBtn');
+      var originalText = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving your design...'; }
+
+      var designId = await mnSubmitDraft(imageUrl, slogan, styleName, color);
+
+      if (typeof window.mnOnDesignReady === 'function') {
+        // mnOnDesignReady handles both flows:
+        //   - Creator intent → register (if needed) → /pages/creator-onboarding
+        //   - Consumer intent → /cart/add.js → login gate → /cart
+        window.mnOnDesignReady(designId, imageUrl, slogan || 'My Design');
+      } else {
+        // Ultra-safe fallback: go to cart for consumers.
+        window.location.href = CUSTOMER_ID ? '/cart' : '/account/login?return_url=/cart';
+      }
+
+      if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    };
+    console.log('[MN AI Studio] transitionToStudio → mnOnDesignReady wired');
+    return true;
+  }
+
+  // ---------- Defensive architect-button bind -----------------------------
+  //
+  // If the inline `onclick="captureEmotion()"` (etc.) ever fails — e.g.,
+  //   • window.captureEmotion isn't defined yet because the injected script
+  //     hasn't parsed (race condition with late page.content loads)
+  //   • some external script stripped the onclick attribute
+  //   • the button is stuck with `disabled=true` after a prior failed run
+  // then the button appears "not clickable" and the studio is dead.
+  //
+  // This wires a real DOM `click` listener on each architect button and
+  // forwards to the expected global function. It runs once per button and
+  // is idempotent. Diagnostic logs are emitted on every bind + fire.
+  var ARCHITECT_BUTTON_MAP = [
+    { id: 'submitBtn',   fn: 'captureEmotion',         label: 'Reveal slogans' },
+    { id: 'continueBtn', fn: 'proceedToVisualization', label: 'Visualize narrative' },
+    { id: 'generateBtn', fn: 'transitionToStudio',     label: 'Render identity' }
+  ];
+
+  function bindArchitectButton(entry) {
+    var btn = document.getElementById(entry.id);
+    if (!btn || btn.__mnBound) return false;
+    btn.__mnBound = true;
+
+    // Strip any stuck-disabled state from a previous failed run so the click
+    // can actually fire (doesn't affect legitimate in-flight disables since
+    // those complete before this one-time bind runs).
+    if (btn.disabled && !btn.dataset.mnIntentionallyDisabled) {
+      btn.disabled = false;
+    }
+    btn.style.pointerEvents = 'auto';
+
+    btn.addEventListener('click', function(e) {
+      // Prevent a double-fire when the inline onclick ALSO fires.
+      // If the inline handler already ran in this same click, its function
+      // call has started — we don't want to run it twice.
+      if (e.__mnArchitectFired) return;
+
+      var fn = window[entry.fn];
+      if (typeof fn !== 'function') {
+        console.warn('[MN architect] ' + entry.label + ' clicked but window.' + entry.fn + ' is not defined yet — retrying in 250ms');
+        setTimeout(function() {
+          var retry = window[entry.fn];
+          if (typeof retry === 'function') {
+            console.info('[MN architect] retry → firing ' + entry.fn + '()');
+            try { retry(); } catch (err) { console.error('[MN architect] ' + entry.fn + ' threw', err); }
+          } else {
+            console.error('[MN architect] ' + entry.fn + ' still not available after retry — studio wiring is broken');
+            if (btn.disabled) btn.disabled = false;
+          }
+        }, 250);
+        e.__mnArchitectFired = true;
+        return;
+      }
+
+      // Inline onclick="captureEmotion()" will ALSO call this same global, so
+      // normally they'd fire twice. Remove the inline attribute the first time
+      // we see a click to ensure single-fire; our listener becomes the sole
+      // path from here on.
+      if (btn.getAttribute('onclick')) {
+        btn.removeAttribute('onclick');
+        console.info('[MN architect] took over inline onclick for #' + entry.id);
+      }
+
+      e.__mnArchitectFired = true;
+      console.info('[MN architect] firing ' + entry.fn + '() via defensive bind');
+      try {
+        var res = fn();
+        if (res && typeof res.catch === 'function') {
+          res.catch(function(err) {
+            console.error('[MN architect] ' + entry.fn + ' rejected', err);
+            if (btn.disabled) btn.disabled = false;
+          });
+        }
+      } catch (err) {
+        console.error('[MN architect] ' + entry.fn + ' threw synchronously', err);
+        if (btn.disabled) btn.disabled = false;
+      }
+    }, false);
+
+    console.info('[MN architect] ✅ defensive bind attached to #' + entry.id + ' (' + entry.label + ')');
+    return true;
+  }
+
+  function bindAllArchitectButtons() {
+    var pending = 0;
+    ARCHITECT_BUTTON_MAP.forEach(function(entry) {
+      if (!bindArchitectButton(entry)) pending++;
+    });
+    return pending;
+  }
+
+  function startArchitectBindPoll() {
+    // Try immediately, then poll while the studio HTML finishes mounting.
+    if (bindAllArchitectButtons() === 0) return;
+    var start = Date.now();
+    var iv = setInterval(function() {
+      var remaining = bindAllArchitectButtons();
+      if (remaining === 0 || Date.now() - start > 15000) {
+        clearInterval(iv);
+        if (remaining > 0) {
+          console.warn('[MN architect] ' + remaining + ' architect button(s) never appeared after 15s');
+        }
+      }
+    }, 200);
+  }
+
+  // ---------- Wait for the page content, then patch -----------------------
+
+  function patchAll() {
+    var a = patchCaptureEmotion();
+    var b = patchDisplayVisualPreviews();
+    var c = patchTransitionToStudio();
+    return a && b && c;
+  }
+
+  function boot() {
+    // Attach defensive architect-button binds ASAP (independent of patches)
+    startArchitectBindPoll();
+
+    // Try immediately; also retry as the page content loads asynchronously.
+    if (patchAll()) return;
+    waitFor(
+      function() {
+        return typeof window.captureEmotion === 'function'
+            && typeof window.displayVisualPreviews === 'function'
+            && typeof window.transitionToStudio === 'function';
+      },
+      patchAll,
+      {
+        maxMs: 10000,
+        interval: 150,
+        onTimeout: function() {
+          // Partial patch — whatever landed in time.
+          patchAll();
+          console.warn('[MN AI Studio] Some studio functions were not found within 10s; patched whatever was available.');
+        }
+      }
+    );
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
+</script>

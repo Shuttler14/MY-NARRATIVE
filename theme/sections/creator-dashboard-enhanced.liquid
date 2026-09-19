@@ -1,0 +1,2111 @@
+﻿{% comment %}
+=================================================================================
+MY NARRATIVE - CREATOR DASHBOARD SECTION (ENHANCED UI/UX)
+=================================================================================
+Design-to-Earn Creator Dashboard - Stunning Visual Design
+
+Author: My Narrative AI Team
+Version: 3.0.0 - Enhanced Edition
+
+USAGE:
+{% section 'creator-dashboard-enhanced' %}
+
+=================================================================================
+{% endcomment %}
+
+{% comment %} =====================================================
+SECTION CONFIGURATION
+==================================================== {% endcomment %}
+
+{% assign api_base_url = section.settings.api_base_url | default: settings.creator_api_base | default: 'https://drishti-api-blond.vercel.app' %}
+{% assign creator_api_base_url = section.settings.creator_api_base_url | default: settings.creator_api_base | default: 'https://drishti-api-blond.vercel.app' %}
+{% assign social_verifier_url = section.settings.social_verifier_url | default: 'https://social-verifier.vercel.app' %}
+{% assign enable_debug = section.settings.enable_debug | default: false %}
+
+{% assign creator_id = customer.id | default: '' %}
+{% assign creator_email = customer.email | default: '' %}
+{% assign creator_first_name = customer.first_name | default: '' %}
+{% assign creator_name = customer.name | default: 'Creator' %}
+
+{% assign is_logged_in = false %}
+{% if customer.id != blank %}
+  {% assign is_logged_in = true %}
+{% endif %}
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800;900&display=swap');
+
+  :root {
+    --cd-primary: #39A596;
+    --cd-primary-light: #4ECDC4;
+    --cd-purple: #A855F7;
+    --cd-pink: #EC4899;
+    --cd-gold: #FFD700;
+    --cd-orange: #F97316;
+    --cd-dark: #0a0a0a;
+    --cd-card-bg: rgba(255, 255, 255, 0.03);
+    --cd-border: rgba(255, 255, 255, 0.08);
+  }
+
+  .cd-page {
+    font-family: 'Montserrat', sans-serif;
+    background: linear-gradient(180deg, #050505 0%, #0a0a0a 30%, #0f0f0f 100%);
+    min-height: 100vh;
+    color: #fff;
+    padding: 0;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* Animated Background */
+  .cd-bg-shapes {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+  }
+
+  .cd-shape {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(100px);
+    animation: cdFloat 15s ease-in-out infinite;
+  }
+
+  .cd-shape-1 {
+    width: 500px;
+    height: 500px;
+    background: rgba(57, 165, 150, 0.12);
+    top: -150px;
+    right: -100px;
+  }
+
+  .cd-shape-2 {
+    width: 400px;
+    height: 400px;
+    background: rgba(168, 85, 247, 0.1);
+    bottom: 10%;
+    left: -100px;
+    animation-delay: -5s;
+  }
+
+  .cd-shape-3 {
+    width: 300px;
+    height: 300px;
+    background: rgba(249, 115, 22, 0.08);
+    top: 50%;
+    right: 20%;
+    animation-delay: -10s;
+  }
+
+  @keyframes cdFloat {
+    0%, 100% { transform: translate(0, 0) rotate(0deg); }
+    33% { transform: translate(20px, -30px) rotate(5deg); }
+    66% { transform: translate(-15px, 15px) rotate(-3deg); }
+  }
+
+  /* Main Container */
+  .cd-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 40px 24px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Welcome Header */
+  .cd-welcome {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-bottom: 40px;
+    animation: fadeInUp 0.8s ease;
+  }
+
+  .cd-welcome-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .cd-avatar-wrapper {
+    position: relative;
+  }
+
+  .cd-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--cd-primary), var(--cd-purple));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    box-shadow: 0 8px 32px rgba(57, 165, 150, 0.3);
+    border: 3px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .cd-avatar-status {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 20px;
+    height: 20px;
+    background: #22c55e;
+    border-radius: 50%;
+    border: 3px solid var(--cd-dark);
+  }
+
+  .cd-welcome-text h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .cd-welcome-text h1 span {
+    background: linear-gradient(135deg, var(--cd-primary), var(--cd-primary-light));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .cd-welcome-text p {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .cd-tier-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 50px;
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .cd-tier-badge.bronze {
+    background: linear-gradient(135deg, rgba(205, 127, 50, 0.2), rgba(180, 120, 50, 0.1));
+    border: 1px solid rgba(205, 127, 50, 0.4);
+    color: #CD7F32;
+  }
+
+  .cd-tier-badge.silver {
+    background: linear-gradient(135deg, rgba(192, 192, 192, 0.2), rgba(150, 150, 150, 0.1));
+    border: 1px solid rgba(192, 192, 192, 0.4);
+    color: #C0C0C0;
+  }
+
+  .cd-tier-badge.gold {
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 180, 0, 0.1));
+    border: 1px solid rgba(255, 215, 0, 0.4);
+    color: #FFD700;
+  }
+
+  .cd-tier-badge.diamond {
+    background: linear-gradient(135deg, rgba(0, 255, 255, 0.2), rgba(57, 165, 150, 0.1));
+    border: 1px solid rgba(0, 255, 255, 0.4);
+    color: #00FFFF;
+  }
+
+  /* Stats Grid */
+  .cd-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 40px;
+  }
+
+  @media (max-width: 1024px) {
+    .cd-stats-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  @media (max-width: 600px) {
+    .cd-stats-grid { grid-template-columns: 1fr; }
+  }
+
+  .cd-stat-card {
+    background: var(--cd-card-bg);
+    border: 1px solid var(--cd-border);
+    border-radius: 20px;
+    padding: 28px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+    animation: fadeInUp 0.8s ease both;
+  }
+
+  .cd-stat-card:nth-child(1) { animation-delay: 0.1s; }
+  .cd-stat-card:nth-child(2) { animation-delay: 0.2s; }
+  .cd-stat-card:nth-child(3) { animation-delay: 0.3s; }
+  .cd-stat-card:nth-child(4) { animation-delay: 0.4s; }
+
+  .cd-stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--cd-primary), var(--cd-purple));
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .cd-stat-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(57, 165, 150, 0.3);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+  }
+
+  .cd-stat-card:hover::before {
+    opacity: 1;
+  }
+
+  .cd-stat-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    margin-bottom: 16px;
+    background: linear-gradient(135deg, rgba(57, 165, 150, 0.2), rgba(168, 85, 247, 0.1));
+    border: 1px solid rgba(57, 165, 150, 0.2);
+  }
+
+  .cd-stat-label {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+  }
+
+  .cd-stat-value {
+    font-size: 32px;
+    font-weight: 800;
+    margin-bottom: 4px;
+  }
+
+  .cd-stat-value.teal { color: var(--cd-primary); }
+  .cd-stat-value.gold { color: var(--cd-gold); }
+  .cd-stat-value.purple { color: var(--cd-purple); }
+  .cd-stat-value.pink { color: var(--cd-pink); }
+
+  .cd-stat-change {
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .cd-stat-change.positive { color: #22c55e; }
+  .cd-stat-change.negative { color: #ef4444; }
+
+  /* Main Content Grid */
+  .cd-main-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 24px;
+  }
+
+  @media (max-width: 1024px) {
+    .cd-main-grid { grid-template-columns: 1fr; }
+  }
+
+  /* Section Titles */
+  .cd-section-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .cd-section-title::before {
+    content: '';
+    width: 4px;
+    height: 20px;
+    background: linear-gradient(180deg, var(--cd-primary), var(--cd-purple));
+    border-radius: 2px;
+  }
+
+  /* Recent Orders */
+  .cd-orders-card {
+    background: var(--cd-card-bg);
+    border: 1px solid var(--cd-border);
+    border-radius: 20px;
+    padding: 28px;
+    animation: fadeInUp 0.8s ease 0.5s both;
+  }
+
+  .cd-order-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .cd-order-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    transition: all 0.2s ease;
+  }
+
+  .cd-order-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(57, 165, 150, 0.2);
+  }
+
+  .cd-order-info {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .cd-order-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--cd-primary), var(--cd-purple));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+  }
+
+  .cd-order-details h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+
+  .cd-order-details p {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .cd-order-amount {
+    text-align: right;
+  }
+
+  .cd-order-amount .amount {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--cd-primary);
+  }
+
+  .cd-order-amount .status {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .cd-order-amount .status.completed {
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+  }
+
+  .cd-order-amount .status.pending {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+  }
+
+  /* Quick Actions */
+  .cd-actions-card {
+    background: var(--cd-card-bg);
+    border: 1px solid var(--cd-border);
+    border-radius: 20px;
+    padding: 28px;
+    animation: fadeInUp 0.8s ease 0.6s both;
+  }
+
+  .cd-action-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .cd-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    color: #fff;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+
+  .cd-action-btn:hover {
+    background: rgba(57, 165, 150, 0.1);
+    border-color: rgba(57, 165, 150, 0.3);
+    transform: translateX(4px);
+  }
+
+  .cd-action-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+  }
+
+  .cd-action-icon.upload {
+    background: linear-gradient(135deg, rgba(57, 165, 150, 0.2), rgba(57, 165, 150, 0.1));
+  }
+
+  .cd-action-icon.analytics {
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(168, 85, 247, 0.1));
+  }
+
+  .cd-action-icon.payout {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(34, 197, 94, 0.1));
+  }
+
+  .cd-action-icon.social {
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.2), rgba(249, 115, 22, 0.1));
+  }
+
+  .cd-action-text h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+
+  .cd-action-text p {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  /* Progress Section */
+  .cd-progress-section {
+    margin-top: 40px;
+    animation: fadeInUp 0.8s ease 0.7s both;
+  }
+
+  .cd-progress-card {
+    background: var(--cd-card-bg);
+    border: 1px solid var(--cd-border);
+    border-radius: 20px;
+    padding: 28px;
+  }
+
+  .cd-progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+  }
+
+  .cd-progress-bar-container {
+    position: relative;
+    height: 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .cd-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--cd-primary), var(--cd-purple));
+    border-radius: 10px;
+    transition: width 1s ease;
+    width: 65%;
+  }
+
+  .cd-progress-rewards {
+    display: flex;
+    gap: 16px;
+    margin-top: 20px;
+  }
+
+  .cd-reward-item {
+    flex: 1;
+    text-align: center;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    position: relative;
+  }
+
+  .cd-reward-item.locked {
+    opacity: 0.4;
+  }
+
+  .cd-reward-icon {
+    font-size: 28px;
+    margin-bottom: 8px;
+  }
+
+  .cd-reward-label {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  /* Products Section */
+  .cd-products-section {
+    margin-bottom: 40px;
+    animation: fadeInUp 0.8s ease 0.3s both;
+  }
+
+  .cd-products-card {
+    background: var(--cd-card-bg);
+    border: 1px solid var(--cd-border);
+    border-radius: 20px;
+    padding: 28px;
+  }
+
+  .cd-products-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+  }
+
+  .cd-products-count {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.6);
+    background: rgba(255, 255, 255, 0.05);
+    padding: 6px 14px;
+    border-radius: 20px;
+  }
+
+  /* Products Empty State - Beautiful Full-Width Card */
+  .cd-products-empty {
+    position: relative;
+    background: linear-gradient(135deg, rgba(20, 20, 30, 0.8), rgba(30, 20, 40, 0.8));
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: 24px;
+    padding: 80px 60px;
+    text-align: center;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+  }
+
+  /* Gradient border effect */
+  .cd-products-empty::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, var(--cd-primary), var(--cd-purple));
+    border-radius: 24px;
+    padding: 2px;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .cd-products-empty::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    right: 2px;
+    bottom: 2px;
+    background: linear-gradient(135deg, rgba(20, 20, 30, 0.9), rgba(30, 20, 40, 0.9));
+    border-radius: 22px;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  /* Animated glow effect */
+  .cd-products-cta-glow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, rgba(57, 165, 150, 0.25) 0%, rgba(168, 85, 247, 0.15) 50%, transparent 100%);
+    animation: cdEmptyGlow 3s ease-in-out infinite;
+    filter: blur(60px);
+  }
+
+  @keyframes cdEmptyGlow {
+    0%, 100% { 
+      transform: translate(-50%, -50%) scale(1);
+      opacity: 0.6;
+    }
+    50% { 
+      transform: translate(-50%, -50%) scale(1.15);
+      opacity: 0.9;
+    }
+  }
+
+  .cd-products-cta-content {
+    position: relative;
+    z-index: 1;
+  }
+
+  .cd-products-cta-icon {
+    font-size: 80px;
+    margin-bottom: 24px;
+    animation: cdEmojiBounce 2.5s ease-in-out infinite;
+    display: inline-block;
+  }
+
+  @keyframes cdEmojiBounce {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-15px) scale(1.1); }
+  }
+
+  .cd-products-empty h4 {
+    font-size: 32px;
+    font-weight: 800;
+    margin-bottom: 16px;
+    background: linear-gradient(135deg, var(--cd-primary-light), var(--cd-gold));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.5px;
+  }
+
+  .cd-products-empty p {
+    font-size: 16px;
+    color: rgba(255, 255, 255, 0.75);
+    margin-bottom: 36px;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+    line-height: 1.7;
+    letter-spacing: 0.3px;
+  }
+
+  .cd-products-cta-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 18px 44px;
+    background: linear-gradient(135deg, var(--cd-gold), #FFA500);
+    color: #000;
+    font-size: 17px;
+    font-weight: 700;
+    border: none;
+    border-radius: 50px;
+    text-decoration: none;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 8px 32px rgba(255, 215, 0, 0.35),
+                0 0 20px rgba(255, 215, 0, 0.2);
+    animation: cdPrimaryGlow 2s ease-in-out infinite;
+    cursor: pointer;
+  }
+
+  @keyframes cdPrimaryGlow {
+    0%, 100% { 
+      box-shadow: 0 8px 32px rgba(255, 215, 0, 0.35),
+                  0 0 20px rgba(255, 215, 0, 0.2);
+    }
+    50% { 
+      box-shadow: 0 12px 48px rgba(255, 215, 0, 0.5),
+                  0 0 30px rgba(255, 215, 0, 0.3);
+    }
+  }
+
+  .cd-products-cta-btn:hover {
+    transform: translateY(-3px) scale(1.05);
+    box-shadow: 0 15px 60px rgba(255, 215, 0, 0.6),
+                0 0 40px rgba(255, 215, 0, 0.4);
+  }
+
+  .cd-products-cta-btn:active {
+    transform: translateY(-1px) scale(1.02);
+  }
+
+  .cd-products-cta-btn span {
+    font-size: 22px;
+  }
+
+  /* Secondary CTA Button */
+  .cd-products-secondary-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 24px;
+    color: var(--cd-primary-light);
+    font-size: 15px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    padding: 12px 28px;
+    border: 1px solid rgba(57, 165, 150, 0.3);
+    border-radius: 50px;
+    background: rgba(57, 165, 150, 0.05);
+  }
+
+  .cd-products-secondary-cta:hover {
+    background: rgba(57, 165, 150, 0.15);
+    border-color: rgba(57, 165, 150, 0.6);
+    transform: translateX(4px);
+  }
+
+  /* Helper text below button */
+  .cd-products-helper-text {
+    margin-top: 20px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+    letter-spacing: 0.5px;
+    line-height: 1.6;
+  }
+
+  .cd-products-helper-text strong {
+    color: rgba(255, 255, 255, 0.7);
+    font-weight: 600;
+  }
+
+  .cd-products-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 20px;
+  }
+
+  .cd-hidden { display: none !important; }
+
+  /* Not Logged In State */
+  .cd-not-logged {
+    text-align: center;
+    padding: 80px 24px;
+    animation: fadeInUp 0.8s ease;
+  }
+
+  .cd-not-logged-icon {
+    width: 120px;
+    height: 120px;
+    margin: 0 auto 32px;
+    background: linear-gradient(135deg, rgba(57, 165, 150, 0.2), rgba(168, 85, 247, 0.2));
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+  }
+
+  .cd-not-logged h2 {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+
+  .cd-not-logged p {
+    font-size: 16px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 32px;
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .cd-login-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(135deg, var(--cd-primary), #2d8a85);
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 16px 40px;
+    border-radius: 50px;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    box-shadow: 0 8px 32px rgba(57, 165, 150, 0.3);
+  }
+
+  .cd-login-btn:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 40px rgba(57, 165, 150, 0.4);
+  }
+
+  /* Animations */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .cd-container { padding: 24px 16px; }
+    .cd-welcome { flex-direction: column; align-items: flex-start; }
+    .cd-welcome-text h1 { font-size: 22px; }
+    .cd-stat-value { font-size: 26px; }
+  }
+</style>
+
+<div class="cd-page">
+  <!-- Background Shapes -->
+  <div class="cd-bg-shapes">
+    <div class="cd-shape cd-shape-1"></div>
+    <div class="cd-shape cd-shape-2"></div>
+    <div class="cd-shape cd-shape-3"></div>
+  </div>
+
+  <div class="cd-container">
+    {% if is_logged_in %}
+      <!-- Welcome Header -->
+      <div class="cd-welcome">
+        <div class="cd-welcome-left">
+          <div class="cd-avatar-wrapper">
+            <div class="cd-avatar">
+              {% if customer.first_name != blank %}
+                {{ customer.first_name | slice: 0 | upcase }}
+              {% else %}
+                👤
+              {% endif %}
+            </div>
+            <div class="cd-avatar-status"></div>
+          </div>
+          <div class="cd-welcome-text">
+            <h1>Welcome back, <span>{{ creator_first_name | default: 'Creator' }}</span>!</h1>
+            <p>Here's what's happening with your designs today.</p>
+          </div>
+        </div>
+        <div class="cd-tier-badge gold" id="cd-tier-badge">
+          <span>🥇</span> <span id="cd-tier-text">Gold Creator</span>
+        </div>
+      </div>
+
+      {% comment %} ═══════════════ ELITE CREATOR VERIFICATION ════════════════ {% endcomment %}
+      <div class="mn-elite-banner" id="mnEliteBanner" role="region" aria-label="Unlock Elite Status">
+        <div class="mn-elite-banner-glow" aria-hidden="true"></div>
+        <div class="mn-elite-banner-inner">
+          <div class="mn-elite-banner-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2l2.39 4.84L20 7.7l-4 3.9.94 5.5L12 14.77 7.06 17.1 8 11.6 4 7.7l5.61-.86L12 2z"/>
+            </svg>
+          </div>
+          <div class="mn-elite-banner-copy">
+            <h3>Unlock Elite Creator Status</h3>
+            <p>Verify 10K+ followers on any supported platform and your commission jumps from <strong>5%</strong> to <strong>40%</strong> — for life.</p>
+          </div>
+          <button class="mn-elite-banner-cta" id="mnEliteOpenBtn" type="button">
+            Verify my reach
+            <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 10h10M11 6l4 4-4 4"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Stats Grid -->
+      {%- comment -%}
+        Stats are populated dynamically from /api/creator/earnings?creator_id={{ customer.id }}
+        Removing Shopify Metafield dependency — all data comes from Supabase via the API.
+      {%- endcomment -%}
+      <div class="cd-stats-grid" id="cdStatsGrid">
+        <!-- Card 1: Total Earnings / Available Balance -->
+        <div class="cd-stat-card">
+          <div class="cd-stat-icon">💰</div>
+          <div class="cd-stat-label">Available Balance</div>
+          <div class="cd-stat-value teal cd-loading" id="cd-earnings">—</div>
+          <div class="cd-stat-change positive" id="cd-earnings-change"></div>
+        </div>
+
+        <!-- Card 2: Designs Sold -->
+        <div class="cd-stat-card">
+          <div class="cd-stat-icon">🛍️</div>
+          <div class="cd-stat-label">Total Sales</div>
+          <div class="cd-stat-value purple cd-loading" id="cd-designs-sold">—</div>
+          <div class="cd-stat-change positive" id="cd-sales-change"></div>
+        </div>
+
+        <!-- Card 3: Lifetime Earnings -->
+        <div class="cd-stat-card">
+          <div class="cd-stat-icon">📈</div>
+          <div class="cd-stat-label">Lifetime Earnings</div>
+          <div class="cd-stat-value gold cd-loading" id="cd-lifetime-earnings">—</div>
+          <div class="cd-stat-change positive" id="cd-earnings-total-change"></div>
+        </div>
+
+        <!-- Card 4: Creator Tier -->
+        <div class="cd-stat-card">
+          <div class="cd-stat-icon">🏆</div>
+          <div class="cd-stat-label">Current Tier</div>
+          <div class="cd-stat-value pink cd-loading" id="cd-tier">—</div>
+          <div class="cd-stat-change" id="cd-tier-progress"></div>
+        </div>
+
+        <!-- Card 5: Narrative Tokens (ai_credits) — Token Economy -->
+        <div class="cd-stat-card" id="cdTokensCard" style="border-color:rgba(57,165,150,0.25);">
+          <div class="cd-stat-icon" style="background:linear-gradient(135deg,rgba(57,165,150,0.2),rgba(57,165,150,0.1));border-color:rgba(57,165,150,0.3);">🪙</div>
+          <div class="cd-stat-label">Narrative Tokens</div>
+          <div class="cd-stat-value teal cd-loading" id="cd-tokens" style="color:#39A596">—</div>
+          <div class="cd-stat-change" id="cd-tokens-hint" style="color:rgba(255,255,255,0.45);font-size:11px;">+5 per sale · +10 sample kit</div>
+          <div id="cd-tokens-cta" style="display:none;margin-top:8px;">
+            <a href="/products/creator-sample-kit" style="color:#ef4444;font-size:12px;font-weight:700;text-decoration:none;">
+              ⚠️ 0 tokens — Get Sample Kit →
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <style>
+        /* Skeleton loading shimmer */
+        .cd-loading {
+          position: relative;
+          color: rgba(255,255,255,0.15) !important;
+        }
+        .cd-loading::after {
+          content: '';
+          position: absolute;
+          inset: -4px;
+          background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.08) 50%, transparent 100%);
+          animation: cdShimmer 1.4s ease infinite;
+        }
+        @keyframes cdShimmer {
+          0%   { transform: translateX(-100%); }
+          100% { transform: translateX(200%); }
+        }
+        /* Override 4-col grid to 5-col for the extra token card */
+        .cd-stats-grid {
+          grid-template-columns: repeat(5, 1fr) !important;
+        }
+        @media (max-width: 1280px) { .cd-stats-grid { grid-template-columns: repeat(3, 1fr) !important; } }
+        @media (max-width: 860px)  { .cd-stats-grid { grid-template-columns: repeat(2, 1fr) !important; } }
+        @media (max-width: 500px)  { .cd-stats-grid { grid-template-columns: 1fr !important; } }
+      </style>
+
+      <script>
+      (function() {
+        'use strict';
+        var CREATOR_API = 'https://drishti-api-blond.vercel.app';
+        var CREATOR_ID  = '{{ customer.id }}';
+        var REFRESH_MS  = 60000;
+
+        var TIER_CFG = {
+          Bronze:  { icon: '🥉', color: '#CD7F32' },
+          Silver:  { icon: '🥈', color: '#C0C0C0' },
+          Gold:    { icon: '🥇', color: '#FFD700' },
+          Diamond: { icon: '💎', color: '#B9F2FF' },
+        };
+
+        function rupees(n) {
+          n = parseFloat(n) || 0;
+          var c = window.MN_currency;
+          var fmt = c && c.format ? function(v){return c.format(v);} : function(v){return '₹'+Number(v).toLocaleString('en-IN');};
+          if (n >= 100000) return fmt(n/100000).replace(/\.0$/,'') + 'L';
+          if (n >= 1000)   return fmt(n/1000).replace(/\.0$/,'') + 'K';
+          return fmt(n);
+        }
+
+        function setText(id, val) {
+          var el = document.getElementById(id);
+          if (el) { el.textContent = val; el.classList.remove('cd-loading'); }
+        }
+
+        function setColor(id, color) {
+          var el = document.getElementById(id);
+          if (el) el.style.color = color;
+        }
+
+        function fetchAndPopulate() {
+          if (!CREATOR_ID) return;
+          fetch(CREATOR_API + '/api/creator/earnings?creator_id=' + CREATOR_ID, {
+            headers: { 'Accept': 'application/json' }
+          })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            var s = data.summary || data || {};
+
+            // Card 1 & 3: Earnings
+            var earned = s.total_earnings_rupees || s.lifetime_earnings || 0;
+            setText('cd-earnings',          rupees(earned));
+            setText('cd-lifetime-earnings', rupees(earned));
+
+            // Card 2: Sales
+            var sold = s.total_designs_sold || s.total_sales || 0;
+            setText('cd-designs-sold', sold.toLocaleString());
+
+            // Card 4: Tier
+            var tier    = s.creator_tier || 'Bronze';
+            var tierCfg = TIER_CFG[tier] || TIER_CFG.Bronze;
+            var tierEl  = document.getElementById('cd-tier');
+            if (tierEl) {
+              tierEl.textContent = tierCfg.icon + ' ' + tier;
+              tierEl.style.color = tierCfg.color;
+              tierEl.classList.remove('cd-loading');
+            }
+            var tp = s.tier_progress;
+            if (tp) {
+              var prog = document.getElementById('cd-tier-progress');
+              if (prog) {
+                prog.textContent = tp.next_tier
+                  ? tp.sales_to_next_tier + ' sales to ' + tp.next_tier
+                  : '💎 Top tier!';
+              }
+            }
+
+            // Update header tier badge if present
+            var badge = document.getElementById('cdHeaderTierBadge');
+            if (badge) {
+              badge.className = 'cd-tier-badge ' + tier.toLowerCase();
+              badge.innerHTML = tierCfg.icon + ' ' + tier;
+            }
+
+            // Card 5: Narrative Tokens
+            var credits = (s.ai_credits != null) ? s.ai_credits : (data.ai_credits != null ? data.ai_credits : null);
+            var tokEl   = document.getElementById('cd-tokens');
+            var tokCard = document.getElementById('cdTokensCard');
+            var tokCTA  = document.getElementById('cd-tokens-cta');
+
+            if (tokEl && credits !== null) {
+              tokEl.textContent = credits;
+              tokEl.classList.remove('cd-loading');
+              if (credits === 0) {
+                tokEl.style.color = '#ef4444';
+                if (tokCard) tokCard.style.borderColor = 'rgba(239,68,68,0.4)';
+                if (tokCTA)  tokCTA.style.display = 'block';
+              } else if (credits <= 1) {
+                tokEl.style.color = '#f59e0b';
+                if (tokCard) tokCard.style.borderColor = 'rgba(245,158,11,0.35)';
+              } else {
+                tokEl.style.color = '#39A596';
+              }
+            } else if (tokEl) {
+              // Pre-migration: show default 3
+              tokEl.textContent = '3';
+              tokEl.classList.remove('cd-loading');
+            }
+          })
+          .catch(function(e) {
+            console.warn('[MN] Earnings fetch failed:', e.message);
+            // Remove shimmer so page doesn't look broken
+            ['cd-earnings','cd-designs-sold','cd-lifetime-earnings','cd-tier','cd-tokens'].forEach(function(id) {
+              var el = document.getElementById(id);
+              if (el && el.textContent === '—') {
+                el.textContent = '–';
+                el.classList.remove('cd-loading');
+              }
+            });
+          });
+        }
+
+        if (CREATOR_ID) {
+          fetchAndPopulate();
+          setInterval(fetchAndPopulate, REFRESH_MS);
+        }
+        window.mnRefreshDashboard = fetchAndPopulate;
+      })();
+      </script>
+
+      <!-- Products Section -->
+      <div class="cd-products-section" id="cdProductsSection">
+        <div class="cd-products-card">
+          <div class="cd-products-header">
+            <h3 class="cd-section-title">🎨 Your Products</h3>
+            <span class="cd-products-count" id="cdProductsCount">0 designs</span>
+          </div>
+
+          <!-- Empty State with Beautiful CTA -->
+          <div class="cd-products-empty" id="cdProductsEmpty">
+            <div class="cd-products-cta-glow"></div>
+            <div class="cd-products-cta-content">
+              <div class="cd-products-cta-icon">🎨</div>
+              <h4>Your Creative Journey Starts Here</h4>
+              <p>You haven't uploaded any designs yet. Every top creator started with their very first design — make yours count!</p>
+              <a href="/pages/become-creator#bcIntentModal" class="cd-products-cta-btn">
+                <span>✨</span> Upload My First Design
+              </a>
+              <div class="cd-products-helper-text">
+                <strong>Takes less than 2 minutes</strong> • <strong>Free to upload</strong> • <strong>Start earning immediately</strong>
+              </div>
+              <a href="/collections/all" class="cd-products-secondary-cta">
+                Explore Design Inspiration →
+              </a>
+            </div>
+          </div>
+
+          <!-- Products Grid (hidden when empty) -->
+          <div class="cd-products-grid cd-hidden" id="cdProductsGrid"></div>
+        </div>
+      </div>
+
+      <!-- Main Content -->
+      <div class="cd-main-grid">
+        <!-- Recent Orders -->
+        <div class="cd-orders-card">
+          <h3 class="cd-section-title">Recent Orders</h3>
+          <div class="cd-order-list" id="cd-order-list">
+            <!-- Orders loaded via API -->
+            <div class="cd-order-item cd-loading">
+              <div class="cd-order-info">
+                <div class="cd-order-avatar">⏳</div>
+                <div class="cd-order-details">
+                  <h4>Loading orders...</h4>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="cd-actions-card">
+          <h3 class="cd-section-title">Quick Actions</h3>
+          <div class="cd-action-list">
+            <!-- Upload Design → goes straight to the placement editor (no AI detour) -->
+            <a href="/pages/placement-editor?intent=creator_upload" class="cd-action-btn">
+              <div class="cd-action-icon upload">📤</div>
+              <div class="cd-action-text">
+                <h4>Upload Design</h4>
+                <p>Submit a new design to earn</p>
+              </div>
+            </a>
+
+            <!-- Create with AI -->
+            <a href="/pages/ai-studio?intent=creator_ai" class="cd-action-btn">
+              <div class="cd-action-icon upload">🤖</div>
+              <div class="cd-action-text">
+                <h4>Create with AI</h4>
+                <p>Generate a custom design in seconds</p>
+              </div>
+            </a>
+
+            <a href="#" class="cd-action-btn">
+              <div class="cd-action-icon analytics">📊</div>
+              <div class="cd-action-text">
+                <h4>View Analytics</h4>
+                <p>Track your performance</p>
+              </div>
+            </a>
+
+            <a href="#" class="cd-action-btn">
+              <div class="cd-action-icon payout">💳</div>
+              <div class="cd-action-text">
+                <h4>Request Payout</h4>
+                <p>Withdraw your earnings</p>
+              </div>
+            </a>
+
+            <a href="#" class="cd-action-btn">
+              <div class="cd-action-icon social">🔗</div>
+              <div class="cd-action-text">
+                <h4>Social Links</h4>
+                <p>Connect your profiles</p>
+              </div>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Progress & Rewards -->
+      <div class="cd-progress-section">
+        <div class="cd-progress-card">
+          <div class="cd-progress-header">
+            <h3 class="cd-section-title" style="margin-bottom: 0;">Monthly Progress</h3>
+            <span style="color: rgba(255,255,255,0.6); font-size: 14px;">65% to Gold Tier</span>
+          </div>
+
+          <div class="cd-progress-bar-container">
+            <div class="cd-progress-bar" style="width: 65%;"></div>
+          </div>
+
+          <div class="cd-progress-rewards">
+            <div class="cd-reward-item">
+              <div class="cd-reward-icon">🎯</div>
+              <div class="cd-reward-label">10 Sales<br><strong>Completed</strong></div>
+            </div>
+            <div class="cd-reward-item">
+              <div class="cd-reward-icon">⭐</div>
+              <div class="cd-reward-label">25 Sales<br><strong>In Progress</strong></div>
+            </div>
+            <div class="cd-reward-item locked">
+              <div class="cd-reward-icon">👑</div>
+              <div class="cd-reward-label">50 Sales<br><strong>Locked</strong></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    {% else %}
+      <!-- Not Logged In State -->
+      <div class="cd-not-logged">
+        <div class="cd-not-logged-icon">🎨</div>
+        <h2>Creator Dashboard</h2>
+        <p>Sign in to track your earnings, manage your designs, and grow your fashion business.</p>
+        <a href="/account/login" class="cd-login-btn">
+          <span>🔐</span> Sign In to Dashboard
+        </a>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function() {
+  const API_BASE = '{{ creator_api_base_url }}';
+  const customerId = '{{ customer.id }}';
+
+  if (!customerId) return;
+
+  // Format number with commas
+  function formatNumber(num) {
+    if (num >= 1000) {
+      return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+    }
+    return num.toString();
+  }
+
+  // Format currency
+  function formatCurrency(num) {
+    var c = window.MN_currency;
+    return c && c.format ? c.format(num) : '₹' + num.toLocaleString('en-IN');
+  }
+
+  // Get relative time
+  function getRelativeTime(dateStr) {
+    if (!dateStr) return 'Recently';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffHrs < 1) return 'Just now';
+    if (diffHrs < 24) return diffHrs + ' hour' + (diffHrs > 1 ? 's' : '') + ' ago';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return diffDays + ' days ago';
+    return date.toLocaleDateString('en-IN');
+  }
+
+  // Load creator stats
+  async function loadCreatorStats() {
+    try {
+      const resp = await fetch(API_BASE + '/api/creator/stats?user_id=' + customerId);
+      const json = await resp.json();
+      if (json.success && json.data) {
+        const stats = json.data;
+
+        // Update earnings
+        document.getElementById('cd-earnings').textContent = formatCurrency(stats.total_earnings || 0);
+        const earningsChange = document.getElementById('cd-earnings-change');
+        if (stats.earnings_change > 0) {
+          earningsChange.innerHTML = '<span>↑</span> +' + stats.earnings_change + '% from last month';
+          earningsChange.className = 'cd-stat-change positive';
+        } else if (stats.earnings_change < 0) {
+          earningsChange.innerHTML = '<span>↓</span> ' + stats.earnings_change + '% from last month';
+          earningsChange.className = 'cd-stat-change negative';
+        }
+
+        // Update designs sold
+        document.getElementById('cd-designs-sold').textContent = stats.designs_sold || 0;
+        const salesChange = document.getElementById('cd-sales-change');
+        if (stats.sales_change > 0) {
+          salesChange.innerHTML = '<span>↑</span> +' + stats.sales_change + '% from last month';
+        }
+
+        // Update rating
+        document.getElementById('cd-rating').textContent = stats.rating || 0;
+
+        // Update followers
+        document.getElementById('cd-followers').textContent = formatNumber(stats.followers || 0);
+        const followersChange = document.getElementById('cd-followers-change');
+        if (stats.followers_change > 0) {
+          followersChange.innerHTML = '<span>↑</span> +' + stats.followers_change + ' new';
+        }
+
+        // Update tier badge
+        updateTierBadge(stats.tier);
+      }
+    } catch (e) {
+      console.log('Using demo stats data');
+    }
+  }
+
+  // Update tier badge
+  function updateTierBadge(tier) {
+    const badge = document.getElementById('cd-tier-badge');
+    const text = document.getElementById('cd-tier-text');
+    if (!badge || !tier) return;
+
+    const tiers = {
+      'standard': { label: 'Standard Creator', emoji: '🥉', class: 'bronze' },
+      'micro_influencer': { label: 'Micro-Influencer', emoji: '🥈', class: 'silver' },
+      'mega_influencer': { label: 'Mega-Influencer', emoji: '👑', class: 'diamond' },
+      'gold': { label: 'Gold Creator', emoji: '🥇', class: 'gold' }
+    };
+
+    const tierInfo = tiers[tier] || tiers.standard;
+    badge.className = 'cd-tier-badge ' + tierInfo.class;
+    if (text) text.textContent = tierInfo.label;
+  }
+
+  // Load recent orders
+  async function loadRecentOrders() {
+    const orderList = document.getElementById('cd-order-list');
+    if (!orderList) return;
+
+    try {
+      const resp = await fetch(API_BASE + '/api/creator/orders?user_id=' + customerId + '&limit=5');
+      const json = await resp.json();
+      if (json.success && json.data && json.data.length > 0) {
+        renderOrders(json.data);
+      } else {
+        renderOrders([]);
+      }
+    } catch (e) {
+      console.log('Using demo orders data');
+    }
+  }
+
+  // Render orders
+  function renderOrders(orders) {
+    const orderList = document.getElementById('cd-order-list');
+    if (!orderList) return;
+
+    if (!orders || orders.length === 0) {
+      orderList.innerHTML = '<div class="cd-order-item"><div class="cd-order-info"><div class="cd-order-avatar">📦</div><div class="cd-order-details"><h4>No orders yet</h4><p>Start selling to see orders here</p></div></div></div>';
+      return;
+    }
+
+    const emojis = ['👗', '👕', '🧥', '👖', '👟', '🎒', '🧣', '🧢', '🕶️', '💍'];
+    orderList.innerHTML = orders.map((order, i) => {
+      const emoji = emojis[i % emojis.length];
+      const statusClass = order.status === 'completed' ? 'completed' : 'pending';
+      const statusLabel = order.status === 'completed' ? 'Completed' : (order.status === 'processing' ? 'Processing' : order.status);
+
+      return '<div class="cd-order-item">' +
+        '<div class="cd-order-info">' +
+          '<div class="cd-order-avatar">' + emoji + '</div>' +
+          '<div class="cd-order-details">' +
+            '<h4>' + (order.product_name || 'Design Sale') + '</h4>' +
+            '<p>Order #' + (order.id || 'N/A') + ' • ' + getRelativeTime(order.created_at) + '</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="cd-order-amount">' +
+          '<div class="amount">' + formatCurrency(order.amount || 0) + '</div>' +
+          '<span class="status ' + statusClass + '">' + statusLabel + '</span>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // Initialize
+  document.addEventListener('DOMContentLoaded', function() {
+    loadCreatorStats();
+    loadRecentOrders();
+    loadProducts();
+
+    // Check if coming from onboarding
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('new') === 'true') {
+      // Scroll to products section
+      setTimeout(() => {
+        const productsSection = document.getElementById('cdProductsSection');
+        if (productsSection) {
+          productsSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Add highlight effect
+          productsSection.querySelector('.cd-products-card').style.animation = 'pulse 1s ease 3';
+        }
+      }, 500);
+    }
+  });
+
+  // Load products
+  async function loadProducts() {
+    try {
+      const resp = await fetch(API_BASE + '/api/creator/products?user_id=' + customerId);
+      const json = await resp.json();
+
+      const emptyState = document.getElementById('cdProductsEmpty');
+      const productsGrid = document.getElementById('cdProductsGrid');
+      const productsCount = document.getElementById('cdProductsCount');
+
+      if (json.success && json.data && json.data.length > 0) {
+        // Show products
+        if (emptyState) emptyState.classList.add('cd-hidden');
+        if (productsGrid) {
+          productsGrid.classList.remove('cd-hidden');
+          renderProducts(json.data);
+        }
+        if (productsCount) productsCount.textContent = json.data.length + ' design' + (json.data.length > 1 ? 's' : '');
+      } else {
+        // Show empty state with CTA
+        if (emptyState) emptyState.classList.remove('cd-hidden');
+        if (productsGrid) productsGrid.classList.add('cd-hidden');
+        if (productsCount) productsCount.textContent = '0 designs';
+      }
+    } catch (e) {
+      console.log('Products load error:', e);
+      // Show empty state on error
+      const emptyState = document.getElementById('cdProductsEmpty');
+      if (emptyState) emptyState.classList.remove('cd-hidden');
+    }
+  }
+
+  // Render products
+  function renderProducts(products) {
+    const grid = document.getElementById('cdProductsGrid');
+    if (!grid) return;
+
+    grid.innerHTML = products.map(product => `
+      <div class="cd-product-item">
+        <div class="cd-product-image">
+          <img src="${product.image || '/assets/placeholder.png'}" alt="${product.name}">
+        </div>
+        <div class="cd-product-info">
+          <h4>${product.name}</h4>
+          <p>${window.MN_currency && window.MN_currency.format ? window.MN_currency.format(product.price) : '₹'+product.price} • ${product.sales || 0} sales</p>
+        </div>
+      </div>
+    `).join('');
+  }
+})();
+</script>
+
+{% comment %} ═══════════════ ELITE VERIFICATION — MODAL + CSS + JS ══════════════════ {% endcomment %}
+<div class="mn-elite-modal" id="mn-elite-verification-modal" role="dialog" aria-modal="true" aria-labelledby="mnEliteModalTitle" aria-hidden="true">
+  <div class="mn-elite-backdrop" data-elite-close></div>
+  <div class="mn-elite-card" role="document">
+    <button class="mn-elite-close" type="button" aria-label="Close" data-elite-close>
+      <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg>
+    </button>
+
+    {% comment %} default (platform chooser) view {% endcomment %}
+    <div class="mn-elite-stage" data-stage="choose">
+      <div class="mn-elite-eyebrow">Elite Creator Verification</div>
+      <h2 class="mn-elite-title" id="mnEliteModalTitle">Prove your reach. Earn 8× more.</h2>
+      <p class="mn-elite-sub">Connect any of the platforms below. We read your follower count directly from the official API — no manual screenshots.</p>
+
+      <div class="mn-elite-warning">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11h.01"/></svg>
+        Note: Your account must be public for verification to succeed.
+      </div>
+
+      <div class="mn-elite-grid">
+        <button type="button" class="mn-elite-platform-btn" data-platform="instagram">
+          <span class="mn-elite-platform-icon" style="background:linear-gradient(135deg,#f09433,#dc2743,#bc1888);color:#fff">
+            <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="14" height="14" rx="4"/><circle cx="10" cy="10" r="3.4"/><circle cx="14.4" cy="5.6" r=".9" fill="currentColor"/></svg>
+          </span>
+          <span class="mn-elite-platform-label">
+            <strong>Instagram</strong>
+            <em>Business / Creator account</em>
+          </span>
+          <svg class="mn-elite-platform-arrow" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7h8M8 4l3 3-3 3"/></svg>
+        </button>
+
+        <button type="button" class="mn-elite-platform-btn" data-platform="twitter">
+          <span class="mn-elite-platform-icon" style="background:#000;color:#fff">
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor"><path d="M14.8 2h2.6L11.6 9l6.6 9H13l-4.2-5.5L4 18H1.4L7.7 10.6 1.5 2h5l3.7 5.2L14.8 2z"/></svg>
+          </span>
+          <span class="mn-elite-platform-label">
+            <strong>X / Twitter</strong>
+            <em>OAuth login · free tier</em>
+          </span>
+          <svg class="mn-elite-platform-arrow" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7h8M8 4l3 3-3 3"/></svg>
+        </button>
+
+        <button type="button" class="mn-elite-platform-btn" data-platform="linkedin">
+          <span class="mn-elite-platform-icon" style="background:#0a66c2;color:#fff">
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor"><rect x="2" y="2" width="16" height="16" rx="3"/><path d="M6 9v6M6 6.5v.01M9 15v-4c0-1.2 1-2 2-2s2 .7 2 2v4" stroke="#fff" stroke-width="1.7" fill="none" stroke-linecap="round"/><circle cx="6" cy="6.5" r=".8" fill="#fff"/></svg>
+          </span>
+          <span class="mn-elite-platform-label">
+            <strong>LinkedIn</strong>
+            <em>OAuth login · OIDC</em>
+          </span>
+          <svg class="mn-elite-platform-arrow" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7h8M8 4l3 3-3 3"/></svg>
+        </button>
+
+        <button type="button" class="mn-elite-platform-btn" data-platform="youtube">
+          <span class="mn-elite-platform-icon" style="background:#e03131;color:#fff">
+            <svg viewBox="0 0 20 20" width="18" height="18" fill="currentColor"><path d="M17.5 6a2 2 0 0 0-1.4-1.4C14.6 4.2 10 4.2 10 4.2s-4.6 0-6.1.4A2 2 0 0 0 2.5 6C2.1 7.5 2.1 10 2.1 10s0 2.5.4 4a2 2 0 0 0 1.4 1.4c1.5.4 6.1.4 6.1.4s4.6 0 6.1-.4A2 2 0 0 0 17.5 14c.4-1.5.4-4 .4-4s0-2.5-.4-4zM8.3 12.4V7.6l4.2 2.4-4.2 2.4z"/></svg>
+          </span>
+          <span class="mn-elite-platform-label">
+            <strong>YouTube</strong>
+            <em>Public subscriber count</em>
+          </span>
+          <svg class="mn-elite-platform-arrow" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7h8M8 4l3 3-3 3"/></svg>
+        </button>
+      </div>
+
+      <p class="mn-elite-fineprint">Threshold: <strong>10,000 verified followers</strong> on any single platform. We never post anything on your behalf.</p>
+    </div>
+
+    {% comment %} YouTube handle entry {% endcomment %}
+    <div class="mn-elite-stage" data-stage="youtube" hidden>
+      <button class="mn-elite-back" type="button" data-elite-back>← Pick a different platform</button>
+      <h2 class="mn-elite-title">Enter your YouTube handle</h2>
+      <p class="mn-elite-sub">We fetch your subscriber count directly from the YouTube Data API. Make sure your subscriber count is <strong>public</strong> in YouTube Studio.</p>
+      <label class="mn-elite-input-label" for="mnEliteYtHandle">Channel handle</label>
+      <input type="text" id="mnEliteYtHandle" class="mn-elite-input" placeholder="@yourhandle" autocomplete="off" spellcheck="false" />
+      <div id="mnEliteYtError" class="mn-elite-inline-error" hidden></div>
+      <button type="button" id="mnEliteYtSubmit" class="mn-elite-primary-btn">Verify my channel</button>
+    </div>
+
+    {% comment %} loading state {% endcomment %}
+    <div class="mn-elite-stage" data-stage="loading" hidden>
+      <div class="mn-elite-spinner" aria-hidden="true"></div>
+      <h2 class="mn-elite-title">Verifying your influence…</h2>
+      <p class="mn-elite-sub">We're talking to the platform's official API. This usually takes a few seconds.</p>
+    </div>
+
+    {% comment %} upgraded (success) {% endcomment %}
+    <div class="mn-elite-stage" data-stage="upgraded" hidden>
+      <div class="mn-elite-success-burst" aria-hidden="true">★</div>
+      <h2 class="mn-elite-title">Welcome to the Elite Tier.</h2>
+      <p class="mn-elite-sub" id="mnEliteUpgradedSub">Your commission is now <strong>40%</strong> on every sale, retroactive from today.</p>
+      <div class="mn-elite-stats">
+        <div class="mn-elite-stat"><em>Verified followers</em><strong id="mnEliteUpgradedFollowers">—</strong></div>
+        <div class="mn-elite-stat"><em>Platform</em><strong id="mnEliteUpgradedPlatform">—</strong></div>
+        <div class="mn-elite-stat"><em>New commission</em><strong>40%</strong></div>
+      </div>
+      <button type="button" class="mn-elite-primary-btn" data-elite-close>Back to dashboard</button>
+    </div>
+
+    {% comment %} keep_growing {% endcomment %}
+    <div class="mn-elite-stage" data-stage="keep_growing" hidden>
+      <div class="mn-elite-progress-wrap">
+        <svg class="mn-elite-progress-ring" viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">
+          <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
+          <circle id="mnEliteProgressFg" cx="60" cy="60" r="52" fill="none" stroke="#39A596" stroke-width="8" stroke-linecap="round" stroke-dasharray="326.7" stroke-dashoffset="326.7" transform="rotate(-90 60 60)"/>
+        </svg>
+        <div class="mn-elite-progress-num" id="mnEliteProgressPct">0%</div>
+      </div>
+      <h2 class="mn-elite-title">You're on the path.</h2>
+      <p class="mn-elite-sub" id="mnEliteKeepMessage">Keep creating — you're closer than you think.</p>
+      <div class="mn-elite-stats">
+        <div class="mn-elite-stat"><em>Current followers</em><strong id="mnEliteKeepFollowers">—</strong></div>
+        <div class="mn-elite-stat"><em>To reach Elite</em><strong id="mnEliteKeepRemaining">—</strong></div>
+      </div>
+      <div class="mn-elite-stage-actions">
+        <button type="button" class="mn-elite-secondary-btn" data-elite-back>Try another platform</button>
+        <button type="button" class="mn-elite-primary-btn" data-elite-close>Got it</button>
+      </div>
+    </div>
+
+    {% comment %} error {% endcomment %}
+    <div class="mn-elite-stage" data-stage="error" hidden>
+      <div class="mn-elite-error-icon" aria-hidden="true">!</div>
+      <h2 class="mn-elite-title">Verification didn't go through.</h2>
+      <p class="mn-elite-sub" id="mnEliteErrorMsg">Account is private or invalid.</p>
+      <div class="mn-elite-stage-actions">
+        <button type="button" class="mn-elite-secondary-btn" data-elite-back>Try again</button>
+        <button type="button" class="mn-elite-primary-btn" data-elite-close>Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+/* ─── Elite banner ──────────────────────────────────────────────────────── */
+.mn-elite-banner {
+  position: relative; margin: 18px 0 28px; border-radius: 18px;
+  background: linear-gradient(135deg, rgba(57,165,150,0.12), rgba(57,165,150,0.04));
+  border: 1px solid rgba(57,165,150,0.35); overflow: hidden;
+  box-shadow: 0 20px 50px -30px rgba(57,165,150,0.45);
+}
+.mn-elite-banner[hidden] { display: none !important; }
+.mn-elite-banner-glow {
+  position:absolute; inset:-1px;
+  background: radial-gradient(circle at 12% 50%, rgba(57,165,150,0.35), transparent 50%);
+  pointer-events:none;
+}
+.mn-elite-banner-inner {
+  position: relative; display: flex; align-items: center; gap: 18px;
+  padding: 20px 24px;
+}
+.mn-elite-banner-icon {
+  flex-shrink:0; width: 46px; height: 46px; border-radius: 12px;
+  display:flex; align-items:center; justify-content:center;
+  background: rgba(57,165,150,0.18); color: #39A596;
+  border: 1px solid rgba(57,165,150,0.4);
+}
+.mn-elite-banner-copy { flex: 1; min-width: 0; }
+.mn-elite-banner-copy h3 {
+  font-family: 'Montserrat', sans-serif; font-size: 16px; font-weight: 700;
+  color: #fff; margin: 0 0 4px; letter-spacing: -0.2px;
+}
+.mn-elite-banner-copy p {
+  font-size: 13px; color: rgba(255,255,255,0.7); margin: 0; line-height: 1.5;
+}
+.mn-elite-banner-copy strong { color: #39A596; font-weight: 700; }
+.mn-elite-banner-cta {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 8px;
+  padding: 11px 20px; border-radius: 10px; border: none; cursor: pointer;
+  font-family: 'Montserrat', sans-serif; font-size: 13px; font-weight: 700;
+  background: #39A596; color: #fff;
+  transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+  white-space: nowrap;
+}
+.mn-elite-banner-cta:hover { background: #2d8a7d; transform: translateY(-1px); box-shadow: 0 8px 20px -8px rgba(57,165,150,0.6); }
+@media (max-width: 680px) {
+  .mn-elite-banner-inner { flex-direction: column; align-items: flex-start; gap: 14px; padding: 18px; }
+  .mn-elite-banner-cta   { width: 100%; justify-content: center; }
+}
+
+/* ─── Modal ────────────────────────────────────────────────────────────── */
+.mn-elite-modal {
+  position: fixed; inset: 0; z-index: 1000; display: none;
+  align-items: center; justify-content: center; padding: 16px;
+  font-family: 'Montserrat', sans-serif;
+}
+.mn-elite-modal.is-open { display: flex; }
+.mn-elite-backdrop {
+  position: absolute; inset: 0; background: rgba(5,7,12,0.7);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  animation: mnEliteFadeIn .2s ease;
+}
+.mn-elite-card {
+  position: relative; width: 100%; max-width: 520px;
+  background: linear-gradient(180deg, #14161d 0%, #0b0c10 100%);
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 20px;
+  padding: 36px 32px 28px; color: #fff;
+  box-shadow: 0 40px 80px -20px rgba(0,0,0,0.7), 0 0 0 1px rgba(57,165,150,0.08);
+  animation: mnEliteSlideIn .25s cubic-bezier(.2,.9,.3,1);
+  max-height: calc(100vh - 32px); overflow-y: auto;
+}
+@keyframes mnEliteFadeIn { from { opacity: 0 } to { opacity: 1 } }
+@keyframes mnEliteSlideIn {
+  from { opacity: 0; transform: translateY(12px) scale(.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+.mn-elite-close {
+  position: absolute; top: 14px; right: 14px; width: 32px; height: 32px;
+  border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: transparent;
+  color: rgba(255,255,255,0.6); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s ease;
+}
+.mn-elite-close:hover { background: rgba(255,255,255,0.05); color: #fff; }
+.mn-elite-back {
+  background: transparent; border: none; color: rgba(255,255,255,0.5);
+  font-size: 12px; font-family: inherit; cursor: pointer; padding: 0; margin-bottom: 14px;
+  text-align: left;
+}
+.mn-elite-back:hover { color: #39A596; }
+.mn-elite-eyebrow {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase;
+  color: #39A596; margin-bottom: 10px;
+}
+.mn-elite-title {
+  font-size: 22px; font-weight: 700; line-height: 1.25; letter-spacing: -0.3px;
+  margin: 0 0 10px;
+}
+.mn-elite-sub {
+  font-size: 13.5px; color: rgba(255,255,255,0.65); line-height: 1.6; margin: 0 0 18px;
+}
+.mn-elite-warning {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 10px 12px; border-radius: 10px; font-size: 12px; line-height: 1.5;
+  background: rgba(249,180,71,0.08); color: #f9b447;
+  border: 1px solid rgba(249,180,71,0.22); margin-bottom: 20px;
+}
+.mn-elite-grid { display: grid; gap: 10px; grid-template-columns: 1fr; }
+@media (min-width: 520px) { .mn-elite-grid { grid-template-columns: 1fr 1fr; } }
+.mn-elite-platform-btn {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 14px; border-radius: 14px;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  cursor: pointer; font-family: inherit; color: inherit; text-align: left;
+  transition: all .18s ease;
+}
+.mn-elite-platform-btn:hover {
+  background: rgba(57,165,150,0.08); border-color: rgba(57,165,150,0.45);
+  transform: translateY(-1px);
+}
+.mn-elite-platform-btn[disabled] { opacity: .45; cursor: not-allowed; transform: none; }
+.mn-elite-platform-icon {
+  flex-shrink: 0; width: 38px; height: 38px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+}
+.mn-elite-platform-label { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mn-elite-platform-label strong { font-size: 13.5px; font-weight: 600; color: #fff; }
+.mn-elite-platform-label em {
+  font-size: 11px; font-style: normal; color: rgba(255,255,255,0.5);
+}
+.mn-elite-platform-arrow { color: rgba(255,255,255,0.35); flex-shrink: 0; }
+.mn-elite-platform-btn:hover .mn-elite-platform-arrow { color: #39A596; }
+.mn-elite-fineprint {
+  font-size: 11px; color: rgba(255,255,255,0.4); margin: 20px 0 0; line-height: 1.55;
+}
+.mn-elite-fineprint strong { color: rgba(255,255,255,0.65); font-weight: 600; }
+
+.mn-elite-input-label {
+  font-size: 12px; color: rgba(255,255,255,0.6); font-weight: 500;
+  margin-bottom: 6px; display: block;
+}
+.mn-elite-input {
+  width: 100%; padding: 12px 14px; border-radius: 10px;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+  color: #fff; font-size: 14px; font-family: inherit; outline: none;
+  transition: border .15s, background .15s;
+}
+.mn-elite-input:focus { border-color: #39A596; background: rgba(57,165,150,0.06); }
+.mn-elite-inline-error {
+  color: #ef4444; font-size: 12px; margin: 8px 0 0;
+}
+.mn-elite-primary-btn, .mn-elite-secondary-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 13px 22px; border-radius: 11px; border: none; cursor: pointer;
+  font-family: inherit; font-size: 14px; font-weight: 700;
+  transition: all .15s ease; width: 100%; margin-top: 16px;
+}
+.mn-elite-primary-btn { background: #39A596; color: #fff; }
+.mn-elite-primary-btn:hover { background: #2d8a7d; transform: translateY(-1px); box-shadow: 0 10px 24px -12px rgba(57,165,150,0.6); }
+.mn-elite-secondary-btn {
+  background: transparent; color: rgba(255,255,255,0.75);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.mn-elite-secondary-btn:hover { border-color: #39A596; color: #fff; }
+
+.mn-elite-stage-actions { display: flex; gap: 10px; margin-top: 8px; }
+.mn-elite-stage-actions > * { flex: 1; margin-top: 8px; }
+
+.mn-elite-spinner {
+  width: 56px; height: 56px; border-radius: 50%;
+  border: 3px solid rgba(57,165,150,0.15); border-top-color: #39A596;
+  animation: mnEliteSpin 0.8s linear infinite; margin: 12px auto 20px;
+}
+@keyframes mnEliteSpin { to { transform: rotate(360deg); } }
+
+.mn-elite-success-burst {
+  width: 72px; height: 72px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 36px; color: #39A596;
+  background: radial-gradient(circle, rgba(57,165,150,0.25), rgba(57,165,150,0.03) 70%);
+  border: 2px solid rgba(57,165,150,0.5);
+  margin: 0 auto 20px; animation: mnElitePop .5s cubic-bezier(.2,.9,.3,1.4);
+}
+@keyframes mnElitePop { 0% { transform: scale(.4); opacity: 0 } 100% { transform: scale(1); opacity: 1 } }
+
+.mn-elite-error-icon {
+  width: 56px; height: 56px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; font-weight: 700; color: #ef4444;
+  background: rgba(239,68,68,0.1); border: 2px solid rgba(239,68,68,0.4);
+  margin: 0 auto 20px;
+}
+
+.mn-elite-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 20px 0 4px;
+}
+.mn-elite-stat {
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px; padding: 12px 10px; text-align: center;
+}
+.mn-elite-stat em {
+  display: block; font-style: normal; font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.08em; color: rgba(255,255,255,0.45); margin-bottom: 4px;
+}
+.mn-elite-stat strong { font-size: 15px; font-weight: 700; color: #fff; }
+
+.mn-elite-progress-wrap { position: relative; width: 120px; height: 120px; margin: 0 auto 18px; }
+.mn-elite-progress-num {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 700; color: #39A596;
+}
+
+/* Celebrate the elite badge when it upgrades on the dashboard */
+.cd-tier-badge.mn-elite-flash {
+  background: linear-gradient(135deg, #39A596, #4ECDC4);
+  color: #fff; border: none; animation: mnEliteFlash 2.4s ease-in-out 2;
+}
+@keyframes mnEliteFlash {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(57,165,150,0.45); }
+  50%      { transform: scale(1.04); box-shadow: 0 0 0 10px rgba(57,165,150,0); }
+}
+</style>
+
+<script>
+(function () {
+  if (window.mnEliteVerificationInit) return;
+  window.mnEliteVerificationInit = true;
+
+  var CREATOR_API = {{ creator_api_base_url | json }};
+  var VERIFIER    = {{ social_verifier_url   | json }};
+  var CREATOR_ID  = {{ creator_id | json }};
+  if (!CREATOR_ID) return; // only logged-in creators can verify
+
+  var modal    = document.getElementById('mn-elite-verification-modal');
+  var openBtn  = document.getElementById('mnEliteOpenBtn');
+  var banner   = document.getElementById('mnEliteBanner');
+  if (!modal || !openBtn) return;
+
+  var popup = null;
+  var currentPlatform = null;
+
+  // ─── helpers ──────────────────────────────────────────────────────────────
+  function setStage(name) {
+    modal.querySelectorAll('.mn-elite-stage').forEach(function (el) {
+      el.hidden = el.getAttribute('data-stage') !== name;
+    });
+  }
+  function openModal(initialStage) {
+    setStage(initialStage || 'choose');
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal() {
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+    if (popup && !popup.closed) { try { popup.close(); } catch (_) {} }
+    popup = null;
+  }
+  function fmtN(n) {
+    n = Number(n) || 0;
+    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/,'') + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/,'') + 'K';
+    return n.toLocaleString('en-IN');
+  }
+  function openPopup(url) {
+    var w = 560, h = 680;
+    var top  = Math.max(0, (screen.height - h) / 2);
+    var left = Math.max(0, (screen.width  - w) / 2);
+    return window.open(
+      url, 'mnSocialVerifier',
+      'width=' + w + ',height=' + h + ',top=' + top + ',left=' + left + ',resizable=yes,scrollbars=yes,noopener=no'
+    );
+  }
+
+  // ─── open / close wiring ─────────────────────────────────────────────────
+  openBtn.addEventListener('click', function () { openModal('choose'); });
+
+  modal.addEventListener('click', function (e) {
+    if (e.target.matches('[data-elite-close]')) closeModal();
+    if (e.target.matches('[data-elite-back]'))  setStage('choose');
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('is-open')) closeModal();
+  });
+
+  // ─── platform picker ─────────────────────────────────────────────────────
+  modal.querySelectorAll('.mn-elite-platform-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var platform = btn.getAttribute('data-platform');
+      currentPlatform = platform;
+      if (platform === 'youtube') {
+        setStage('youtube');
+        setTimeout(function () {
+          var inp = document.getElementById('mnEliteYtHandle');
+          if (inp) inp.focus();
+        }, 50);
+        return;
+      }
+      launchOAuth(platform);
+    });
+  });
+
+  // ─── YouTube handle submission ───────────────────────────────────────────
+  var ytBtn = document.getElementById('mnEliteYtSubmit');
+  if (ytBtn) {
+    ytBtn.addEventListener('click', submitYouTube);
+  }
+  var ytInput = document.getElementById('mnEliteYtHandle');
+  if (ytInput) {
+    ytInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') submitYouTube(); });
+  }
+
+  async function submitYouTube() {
+    var handle = (document.getElementById('mnEliteYtHandle').value || '').trim();
+    var errEl  = document.getElementById('mnEliteYtError');
+    errEl.hidden = true;
+    if (!handle) {
+      errEl.textContent = 'Please enter your YouTube handle.';
+      errEl.hidden = false;
+      return;
+    }
+    currentPlatform = 'youtube';
+    setStage('loading');
+    try {
+      var r = await fetch(VERIFIER.replace(/\/+$/,'') + '/api/youtube/elite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handle: handle, creator_id: CREATOR_ID })
+      });
+      var d = await r.json();
+      if (!d.success) throw new Error(d.error || 'Could not verify channel.');
+      await submitVerificationToken(d.verification_token);
+    } catch (e) {
+      showError(e.message || 'We could not verify that channel.');
+    }
+  }
+
+  // ─── OAuth popup + postMessage handshake (twitter / instagram / linkedin) ─
+  function launchOAuth(platform) {
+    setStage('loading');
+    var qs = new URLSearchParams({
+      creator_id:    CREATOR_ID,
+      opener_origin: window.location.origin
+    });
+    var url = VERIFIER.replace(/\/+$/,'') + '/api/' + platform + '/auth?' + qs.toString();
+
+    fetch(url, { credentials: 'omit' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.success || !d.authUrl) throw new Error(d.error || 'OAuth is not configured.');
+        popup = openPopup(d.authUrl);
+        if (!popup) throw new Error('Please allow popups for this site and retry.');
+      })
+      .catch(function (e) { showError(e.message); });
+  }
+
+  // Accept postMessages only from the known verifier origin.
+  var verifierOrigin;
+  try { verifierOrigin = new URL(VERIFIER).origin; } catch (_) { verifierOrigin = ''; }
+
+  window.addEventListener('message', function (e) {
+    if (verifierOrigin && e.origin !== verifierOrigin) return;
+    var msg = e.data;
+    if (!msg || msg.source !== 'mn-social-verifier') return;
+    if (!msg.ok) {
+      return showError(msg.error || 'Verification cancelled.');
+    }
+    if (!msg.verification_token) {
+      return showError('Verification succeeded but no token was returned.');
+    }
+    submitVerificationToken(msg.verification_token);
+  });
+
+  // ─── Backend handoff → /api/verify_social ────────────────────────────────
+  async function submitVerificationToken(token) {
+    setStage('loading');
+    try {
+      var r = await fetch(CREATOR_API.replace(/\/+$/,'') + '/api/verify_social', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ creator_id: CREATOR_ID, verification_token: token })
+      });
+      var d = await r.json();
+      if (!d.success) return showError(d.error || 'Verification failed.');
+      if (d.status === 'upgraded' || d.status === 'already_elite') return renderUpgraded(d);
+      if (d.status === 'keep_growing') return renderKeepGrowing(d);
+      showError('Unexpected response from server.');
+    } catch (e) {
+      showError(e.message || 'Network error. Please retry.');
+    }
+  }
+
+  // ─── Result renderers ────────────────────────────────────────────────────
+  function renderUpgraded(d) {
+    document.getElementById('mnEliteUpgradedFollowers').textContent = fmtN(d.followers);
+    document.getElementById('mnEliteUpgradedPlatform').textContent  = (d.platform || '').replace(/^\w/, function(c){return c.toUpperCase();});
+    document.getElementById('mnEliteUpgradedSub').innerHTML =
+      d.status === 'already_elite'
+        ? 'You are already an Elite Creator — we refreshed your stats.'
+        : 'Your commission is now <strong>40%</strong> on every sale, retroactive from today.';
+    setStage('upgraded');
+    applyEliteStateToDashboard({ followers: d.followers, platform: d.platform });
+  }
+
+  function renderKeepGrowing(d) {
+    var followers = Number(d.followers || 0);
+    var threshold = Number(d.threshold || 10000);
+    var pct       = Math.min(100, Math.round((followers / threshold) * 100));
+    var fg        = document.getElementById('mnEliteProgressFg');
+    if (fg) fg.setAttribute('stroke-dashoffset', String(326.7 * (1 - pct / 100)));
+    document.getElementById('mnEliteProgressPct').textContent  = pct + '%';
+    document.getElementById('mnEliteKeepFollowers').textContent = fmtN(followers);
+    document.getElementById('mnEliteKeepRemaining').textContent = fmtN(d.remaining || (threshold - followers));
+    document.getElementById('mnEliteKeepMessage').textContent   = d.message
+      || ('You have ' + followers.toLocaleString() + ' followers on ' + d.platform + '. Reach 10k to unlock Elite status!');
+    setStage('keep_growing');
+  }
+
+  function showError(msg) {
+    document.getElementById('mnEliteErrorMsg').textContent = msg || 'Something went wrong.';
+    setStage('error');
+  }
+
+  // ─── Dashboard state sync (hide banner, flip badge, bump commission) ─────
+  function applyEliteStateToDashboard(info) {
+    if (banner) banner.hidden = true;
+
+    var badge = document.getElementById('cd-tier-badge');
+    var text  = document.getElementById('cd-tier-text');
+    if (badge) {
+      badge.className = 'cd-tier-badge diamond mn-elite-flash';
+      badge.innerHTML = '<span>★</span> <span id="cd-tier-text">Elite Creator</span>';
+    } else if (text) { text.textContent = 'Elite Creator'; }
+
+    // Any dashboard surface that renders commission percentage
+    document.querySelectorAll('[data-creator-commission-pct]').forEach(function (el) {
+      el.textContent = '40%';
+    });
+  }
+
+  // ─── On load, if the dashboard already knows the creator is elite, hide banner
+  document.addEventListener('DOMContentLoaded', function () {
+    // 1) SessionStorage hint (set by onboarding or previous sessions)
+    try {
+      var just = JSON.parse(sessionStorage.getItem('mn_elite_state') || 'null');
+      if (just && just.is_elite) applyEliteStateToDashboard(just);
+    } catch (_) {}
+
+    // 2) Live check via the creator earnings/profile API (non-blocking)
+    fetch(CREATOR_API.replace(/\/+$/,'') + '/api/creator/earnings?creator_id=' + encodeURIComponent(CREATOR_ID))
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j || !j.success) return;
+        var s = j.stats || j.data || {};
+        if (s.is_elite || s.commission_tier === 'elite') {
+          applyEliteStateToDashboard(s);
+          try { sessionStorage.setItem('mn_elite_state', JSON.stringify({ is_elite: true })); } catch (_) {}
+        }
+      })
+      .catch(function () {});
+  });
+})();
+</script>
+
+{% schema %}
+{
+  "name": "Creator Dashboard",
+  "settings": [
+    {
+      "type": "text",
+      "id": "api_base_url",
+      "label": "Main API Base URL",
+      "default": "https://drishti-api-blond.vercel.app"
+    },
+    {
+      "type": "text",
+      "id": "creator_api_base_url",
+      "label": "Creator Economy API Base URL",
+      "default": "https://drishti-api-blond.vercel.app"
+    },
+    {
+      "type": "text",
+      "id": "social_verifier_url",
+      "label": "Social Verifier Base URL",
+      "info": "Deployed Node social-verifier (handles OAuth popups for Elite verification).",
+      "default": "https://social-verifier.vercel.app"
+    },
+    {
+      "type": "checkbox",
+      "id": "enable_debug",
+      "label": "Enable Debug Mode",
+      "default": false
+    }
+  ],
+  "presets": [
+    {
+      "name": "Creator Dashboard"
+    }
+  ]
+}
+{% endschema %}
