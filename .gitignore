@@ -1,0 +1,40 @@
+# ── Secrets — NEVER commit ──
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage*
+
+# ── Node ──
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ── OS / editors ──
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ── Build artifacts & data ──
+*.log
+*.db
+*.sqlite*
+qdrant_storage/
+dist/
+build/
+
+# ── Vercel / Fly local state ──
+.vercel/
